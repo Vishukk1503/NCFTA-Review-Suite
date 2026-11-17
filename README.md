@@ -6,23 +6,23 @@ Local v3 field extraction with a coloured terminal dashboard and Excel review. S
 
 1. Download **NCFTA-Review-Suite-Windows-v3.zip** from [this repository's releases](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases). Use the named asset: GitHub's generated Source code ZIP excludes model weights.
 2. Extract to a writable folder. Allow about 6 GB free for the model, environment and package downloads, plus space for saved runs.
-3. Apply **NCFTA-Review-Suite-Launcher-Fix.zip** from the same release into the extracted suite folder, replacing the included files. Then double-click **Install-Work-PC.bat**. The default profile targets Intel CPU + Arc/UHD GPU, including Core Ultra 9 285H / Arc 140T.
+3. Double-click **Install-Work-PC.bat**. It calls Python directly. The default profile targets Intel CPU + Arc/UHD GPU, including Core Ultra 9 285H / Arc 140T. For an existing v3.1 installation, extract **NCFTA-Review-Suite-BAT-Update.zip** into the existing suite folder first and replace the included files.
 4. Put your NCFTA API key in `.env`. The installer preserves an existing file and never prints the key.
 5. Double-click **Start-NCFTA.bat**. Select dates or saved JSON, groups (`all` means 6, 7, 8) and processing device. Choose **intel-gpu** for Intel acceleration.
 
-The installer creates a local Python 3.12 x64 `.venv`. It can install missing Python through WinGet and the Microsoft Visual C++ x64 runtime if needed; Windows/IT approval may be required for the latter. It installs packages from PyPI and the official PyTorch index. It never fetches a different model, retrains, or contacts NCFTA during setup.
+The BAT discovers Python 3.12 x64 or installs it through WinGet. The Python setup runner creates a local `.venv`, installs the pinned packages, and checks the model. It can install a missing Microsoft Visual C++ x64 runtime through WinGet; Windows/IT approval may be required. Packages come from PyPI and the official PyTorch index. No PowerShell is launched or required. Setup never fetches a different model, retrains, or contacts NCFTA.
 
 Excel uses **openpyxl**: Microsoft Excel, Node and Codex are not needed to create workbooks. The older optional Node exporter remains for existing configured installations.
 
 ### If setup does not start
 
-The updated BAT immediately prints **NCFTA Review Suite - Work PC setup**, then **PowerShell installer started**. It shows the current stage and saves a transcript in `%TEMP%\NCFTA-Install-*.log`. PowerShell launch errors are also saved in the corresponding `.log.startup.txt` file. The exact paths appear in the window.
+The BAT immediately prints **NCFTA Review Suite - BAT setup v3.2**, then **Python installer started**. The Python runner prints each stage, streams command output/errors, and saves a log under `setup/install-*.log` with a corresponding JSON status file. If the suite folder cannot hold a log, the runner uses the Windows temporary folder and displays its exact path.
 
-**SETUP COMPLETE** is printed only after the installer confirms completion. **SETUP DID NOT COMPLETE** means setup failed; keep the window open and use the error above it. **Press any key to CLOSE this window** only closes the window. It does not start installation or open the app.
+**SETUP COMPLETE** is printed after package checks, Excel export and the model check pass. **SETUP FAILED** includes the failed stage and command/error. The BAT returns Python's exit code directly. **Press any key to CLOSE this window** closes the window after the result is shown.
 
-If the only message is still **Press any key to continue**, you are not running the updated BAT. Extract **NCFTA-Review-Suite-Launcher-Fix.zip** into your existing suite folder and replace the included files. Run the BAT from that folder, outside the ZIP. The update does not contain model files; retain the full Windows bundle. It includes an updated `BUNDLE-SHA256.json` for the files after the update.
+For an older installation, apply **NCFTA-Review-Suite-BAT-Update.zip** as a complete update, including `install_work_pc.py`. Run the BAT outside the ZIP. The update does not contain model files; retain the full Windows bundle. Earlier `.ps1` files may remain in an older folder, but the new launchers never call them. The full v3.2 bundle excludes those scripts.
 
-All application launchers stay in the current window and preserve failure exit codes. `Start-NCFTA.cmd` is an alias for `Start-NCFTA.bat`. `Check-Intel-GPU.bat` forwards options such as `--help`, `--run` and `--samples` to the Intel check. `Open-Driver-Help.bat --list` prints the driver-help links without opening a browser. Direct PowerShell entry points return when finished; BAT files keep the window open until a key is pressed.
+All application launchers stay in the current window and preserve failure exit codes. `Start-NCFTA.cmd` is an alias for `Start-NCFTA.bat`. `Check-Intel-GPU.bat` forwards options such as `--help`, `--run` and `--samples` to the Intel check. `Open-Driver-Help.bat --list` prints the driver-help links without opening a browser. BAT files keep the window open until a key is pressed.
 
 ### Packages
 
@@ -54,16 +54,17 @@ Drivers are separate from Python packages. Use the PC manufacturer's or IT-appro
 
 `auto` retains CUDA-then-CPU behavior. Intel remains an explicit choice pending full validation on the target PC. Setup checks one synthetic input on CPU and the requested accelerator, checking actual execution and exact output fields/text/positions. This establishes installation health, not accuracy. Menu **7** compares up to 20 saved inputs on CPU and Intel GPU.
 
-```powershell
-.\Install-Work-PC.bat -Profile intel
-.\Install-Work-PC.bat -Profile nvidia
-.\Install-Work-PC.bat -Profile cpu
-.\Install-Work-PC.bat -Plan
-.\Install-Work-PC.bat -Python "C:\Python312\python.exe"
-.\Install-Work-PC.bat -Wheelhouse "D:\approved-wheels"
+```bat
+Install-Work-PC.bat --profile intel
+Install-Work-PC.bat --profile nvidia
+Install-Work-PC.bat --profile cpu
+Install-Work-PC.bat --plan
+Install-Work-PC.bat --python "C:\Python312\python.exe"
+Install-Work-PC.bat --wheelhouse "D:\approved-wheels"
+Install-Work-PC.bat --venv "D:\NCFTA-environment"
 ```
 
-An optional wheelhouse must include every Windows/Python 3.12 dependency and the selected Torch build. Offline setup requires Python and Visual C++ already installed; no wheelhouse is included. `-SkipModelCheck` checks packages without establishing model readiness. The default performs the model check.
+An optional wheelhouse must include every Windows/Python 3.12 dependency and the selected Torch build. Offline setup requires Python and Visual C++ already installed; no wheelhouse is included. `--skip-model-check` checks packages without establishing model readiness. The default performs the model check. Legacy option spellings such as `-Profile`, `-VenvPath` and `-Plan` are also accepted. An explicit `--python` or `NCFTA_PYTHON` must point to a working Python 3.12 x64 executable.
 
 ## Workflow
 
@@ -82,13 +83,13 @@ Date range + groups → read-only MISP events → objects/direct attributes → 
 
 Menu: **1** fetch/extract; **2** saved JSON; **3** resume; **4** export; **5** setup; **6** output folder; **7** Intel comparison; **0** exit.
 
-```powershell
-.\Start-NCFTA.ps1 doctor
-.\Start-NCFTA.ps1 run --from-date 2026-11-09 --to-date 2026-11-15 --groups 6 7 8 --device intel-gpu
-.\Start-NCFTA.ps1 import --json "C:\data\events.json" --device intel-gpu
-.\Start-NCFTA.ps1 resume --run "C:\data\run-folder" --device cpu
-.\Start-NCFTA.ps1 export --run "C:\data\run-folder"
-.\Start-NCFTA.ps1 check-intel --run "C:\data\saved-run" --samples 20
+```bat
+Start-NCFTA.bat doctor
+Start-NCFTA.bat run --from-date 2026-11-09 --to-date 2026-11-15 --groups 6 7 8 --device intel-gpu
+Start-NCFTA.bat import --json "C:\data\events.json" --device intel-gpu
+Start-NCFTA.bat resume --run "C:\data\run-folder" --device cpu
+Start-NCFTA.bat export --run "C:\data\run-folder"
+Check-Intel-GPU.bat --run "C:\data\saved-run" --samples 20
 ```
 
 Default CPU threads: 4. `--max-new 100` pauses after 100 new attributes; resume continues. `infer` extracts without export. `NCFTA_PYTHON` can override the local `.venv` runtime.
@@ -118,16 +119,14 @@ Known model errors remain, including missed routing numbers and target organizat
 
 ## Development and distribution
 
-This public Git repository contains code and small verified assets. Large checkpoint/encoder files are in the release ZIP. Credentials, NCFTA data, predictions, datasets, run folders and personal settings are excluded from both. Verify the release ZIP using `Get-FileHash -Algorithm SHA256` against `SHA256SUMS.txt`.
+This public Git repository contains code and small verified assets. Large checkpoint/encoder files are in the release ZIP. Credentials, NCFTA data, predictions, datasets, run folders and personal settings are excluded from both. Verify the release ZIP using `certutil -hashfile NCFTA-Review-Suite-Windows-v3.zip SHA256` against `SHA256SUMS.txt`.
 
 The read-only `ncfta_client.py` originates from `Vishukk1503/NCFTA-MISP-CLI`, blob `295c16baac2cc635a322c7ec3c704d5703dc8040`. That repository is unchanged. Vendored GLiNER2's Apache 2.0 license is in `assets/GLINER2-LICENSE.txt`.
 
-```powershell
+```bat
 .\.venv\Scripts\python.exe -m unittest discover -p 'test_*.py' -v
 ```
 
 Tests use synthetic records and mocked network calls. Setup smoke and saved-input comparisons are separate; the frozen test remains untouched.
 
-Release verification: 22 automated tests passed in a fresh Windows Python 3.12 environment. The PowerShell installer completed with `pip check`, portable Excel export, full asset checks and a one-input CPU/Intel UHD GPU agreement check using an empty model cache. Intel execution was confirmed as FP32. This does not establish Arc 140T performance or full validation accuracy.
-
-Launcher update verification: all 13 Windows launcher tests passed, including paths containing spaces and ampersands, missing files/runtime, argument forwarding, Python failures and silent PowerShell termination. Real menu launch/exit, CMD help, Intel help/error handling and browser-link dispatch also passed. The updated installer completed again with exit 0, package checks, Excel export and matching synthetic CPU/Intel FP32 inference using the existing isolated test environment. Python and Visual C++ were already installed; first-time prerequisite installation and the work PC's failure remain unverified.
+The Windows launcher and setup tests cover paths with spaces/ampersands, argument forwarding, missing files/runtime, visible child-process failures, offline package installation, and preservation of existing settings and credentials. Tests check that BAT/CMD launchers and the Python setup runner have no PowerShell dependency. Installation readiness is checked separately by the real installer and synthetic CPU/Intel FP32 comparison; it does not establish Arc 140T performance or full validation accuracy. Python and Visual C++ are already installed on the development PC, so first-time prerequisite installation still needs verification on a clean machine.
