@@ -1,0 +1,10 @@
+{
+  "url": "https://misp.ncfta.net",
+  "transport": "auto",
+  "model": "assets/model-v3",
+  "vendor": "assets",
+  "catalog": "assets/field-catalog.json",
+  "env": ".env",
+  "runs": "runs",
+  "excel_backend": "openpyxl"
+}

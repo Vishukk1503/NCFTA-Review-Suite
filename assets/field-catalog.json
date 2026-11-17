@@ -1,0 +1,715 @@
+{
+  "version": "ncfta-inference-1",
+  "catalog_version": "2.0.0",
+  "fields": [
+    {
+      "key": "reported_actor_name",
+      "name": "Reported actor name",
+      "group": "People and organizations",
+      "definition": "Source-reported threat actor name; no account ownership inferred."
+    },
+    {
+      "key": "company_name",
+      "name": "Company name",
+      "group": "People and organizations",
+      "definition": "Company reported by the source; not automatically a merchant."
+    },
+    {
+      "key": "date_of_birth",
+      "name": "Date of birth",
+      "group": "People and organizations",
+      "definition": "Accepted calendar dates; no automatic association with a particular name."
+    },
+    {
+      "key": "alias_name",
+      "name": "Alias name",
+      "group": "People and organizations",
+      "definition": "Source-reported alias or moniker. Link to a person only when supported."
+    },
+    {
+      "key": "age",
+      "name": "Age",
+      "group": "People and organizations",
+      "definition": "Source-reported age, including units. Do not derive without a defined reference date."
+    },
+    {
+      "key": "place_of_birth",
+      "name": "Place of birth",
+      "group": "People and organizations",
+      "definition": "Source-reported birthplace, distinct from address and residence."
+    },
+    {
+      "key": "occupation",
+      "name": "Occupation",
+      "group": "People and organizations",
+      "definition": "Source-reported occupation or job title."
+    },
+    {
+      "key": "employer_name",
+      "name": "Employer name",
+      "group": "People and organizations",
+      "definition": "Organization explicitly reported as an employer."
+    },
+    {
+      "key": "source_coc_label",
+      "name": "COC source label",
+      "group": "People and organizations",
+      "definition": "Preserve the COC label and value. The abbreviation meaning has not been confirmed."
+    },
+    {
+      "key": "source_cor_label",
+      "name": "COR source label",
+      "group": "People and organizations",
+      "definition": "Preserve the COR label and value. The abbreviation meaning has not been confirmed."
+    },
+    {
+      "key": "registered_agent",
+      "name": "Registered agent",
+      "group": "People and organizations",
+      "definition": "Person or organization explicitly identified as a registered agent."
+    },
+    {
+      "key": "alternate_trade_name",
+      "name": "Alternate trade name",
+      "group": "People and organizations",
+      "definition": "Source-reported alternate business or trading name."
+    },
+    {
+      "key": "reported_gender",
+      "name": "Reported gender",
+      "group": "People and organizations",
+      "definition": "Gender explicitly reported in the source. Do not infer from a name."
+    },
+    {
+      "key": "address",
+      "name": "Address",
+      "group": "Contact details",
+      "definition": "Source-reported addresses; ownership and address components not inferred."
+    },
+    {
+      "key": "phone_number",
+      "name": "Phone number",
+      "group": "Contact details",
+      "definition": "Normalized phone strings; mobile status and country code not inferred."
+    },
+    {
+      "key": "email_address",
+      "name": "Email address",
+      "group": "Contact details",
+      "definition": "Email strings passing the configured basic format check."
+    },
+    {
+      "key": "previous_address",
+      "name": "Previous address",
+      "group": "Contact details",
+      "definition": "Address explicitly described as previous or former. Preserve any supplied date context."
+    },
+    {
+      "key": "beneficiary_address",
+      "name": "Beneficiary address",
+      "group": "Contact details",
+      "definition": "Address explicitly attributed to a beneficiary."
+    },
+    {
+      "key": "bank_name",
+      "name": "Bank name",
+      "group": "Banking",
+      "definition": "Source bank names; aliases have not been consolidated."
+    },
+    {
+      "key": "bank_account_number",
+      "name": "Account number",
+      "group": "Banking",
+      "definition": "Account identifiers preserved as text, including leading zeros."
+    },
+    {
+      "key": "routing_number",
+      "name": "Routing number",
+      "group": "Banking",
+      "definition": "Nine-digit routing values passing the configured checksum."
+    },
+    {
+      "key": "swift_code",
+      "name": "SWIFT code",
+      "group": "Banking",
+      "definition": "Source SWIFT values passing a syntax check."
+    },
+    {
+      "key": "bank_location",
+      "name": "Bank location",
+      "group": "Banking",
+      "definition": "Explicit bank location; no bank/location pairing inferred."
+    },
+    {
+      "key": "beneficiary_name",
+      "name": "Beneficiary name",
+      "group": "Banking",
+      "definition": "Name explicitly attributed to a beneficiary. Never infer from event co-occurrence."
+    },
+    {
+      "key": "account_holder_name",
+      "name": "Account holder name",
+      "group": "Banking",
+      "definition": "Name explicitly attributed to an account holder. Requires evidence linking the name and account."
+    },
+    {
+      "key": "remitter_name",
+      "name": "Remitter name",
+      "group": "Banking",
+      "definition": "Name explicitly identified as the remitter or sender."
+    },
+    {
+      "key": "payee_name",
+      "name": "Payee name",
+      "group": "Banking",
+      "definition": "Name explicitly identified as the payee or recipient."
+    },
+    {
+      "key": "for_benefit_of",
+      "name": "For benefit of instructions",
+      "group": "Banking",
+      "definition": "Reported FBO instruction. Preserve the full instruction and its relationship evidence."
+    },
+    {
+      "key": "for_further_credit",
+      "name": "For further credit instructions",
+      "group": "Banking",
+      "definition": "Reported FFC instruction. Preserve the full instruction and its relationship evidence."
+    },
+    {
+      "key": "account_type",
+      "name": "Account type",
+      "group": "Banking",
+      "definition": "Explicit account type, such as the source-labeled receiving account type."
+    },
+    {
+      "key": "reported_amount",
+      "name": "Amount",
+      "group": "Financial activity",
+      "definition": "Accepted reported amounts. Explicit currency symbols retained; currency code unknown."
+    },
+    {
+      "key": "shares",
+      "name": "Shares",
+      "group": "Financial activity",
+      "definition": "Reported share quantities; no transaction or stock pairing inferred."
+    },
+    {
+      "key": "stock_symbol",
+      "name": "Stock symbol",
+      "group": "Financial activity",
+      "definition": "Reported stock symbols; exchange not inferred."
+    },
+    {
+      "key": "net_amount",
+      "name": "Net amount",
+      "group": "Financial activity",
+      "definition": "Explicit net amount, distinct from gross amount and generic reported amount."
+    },
+    {
+      "key": "gross_amount",
+      "name": "Gross amount",
+      "group": "Financial activity",
+      "definition": "Explicit gross amount. Empty source labels do not supply an amount."
+    },
+    {
+      "key": "federal_tax_withholding",
+      "name": "Federal tax withholding",
+      "group": "Financial activity",
+      "definition": "Reported federal tax or withholding amount. Preserve the original tax label."
+    },
+    {
+      "key": "state_tax_withholding",
+      "name": "State tax withholding",
+      "group": "Financial activity",
+      "definition": "Reported state tax or withholding amount. Preserve the original tax label."
+    },
+    {
+      "key": "principal_amount",
+      "name": "Principal amount",
+      "group": "Financial activity",
+      "definition": "Explicit principal amount, separate from fees, taxes and totals."
+    },
+    {
+      "key": "total_amount",
+      "name": "Total amount",
+      "group": "Financial activity",
+      "definition": "Source-reported total. Preserve what was totaled and its scope."
+    },
+    {
+      "key": "reported_currency",
+      "name": "Reported currency",
+      "group": "Financial activity",
+      "definition": "Explicit currency code. Do not infer currency from an ambiguous symbol."
+    },
+    {
+      "key": "loss_status_text",
+      "name": "Loss status",
+      "group": "Financial activity",
+      "definition": "Source wording about loss, including explicit no-loss statements. Not a monetary amount."
+    },
+    {
+      "key": "recovery_status_text",
+      "name": "Recovery status",
+      "group": "Financial activity",
+      "definition": "Source wording about recovery or return of funds. Not a recovered amount."
+    },
+    {
+      "key": "ssn",
+      "name": "Full SSN",
+      "group": "Sensitive identifiers",
+      "definition": "Full-format source SSN values passing structural checks; identity unverified."
+    },
+    {
+      "key": "ssn_partial",
+      "name": "Partial SSN",
+      "group": "Sensitive identifiers",
+      "definition": "Reserved final field. Current short SSN values require review and are not populated here."
+    },
+    {
+      "key": "employer_tax_id",
+      "name": "EIN / FEIN",
+      "group": "Sensitive identifiers",
+      "definition": "Source-labeled EIN/FEIN identifier. Do not treat it as an SSN."
+    },
+    {
+      "key": "taxpayer_id",
+      "name": "TIN",
+      "group": "Sensitive identifiers",
+      "definition": "Source-labeled TIN identifier. Do not assume it is an SSN or EIN."
+    },
+    {
+      "key": "drivers_license_number",
+      "name": "Driver's license number",
+      "group": "Sensitive identifiers",
+      "definition": "Source-labeled license identifier. Preserve letters, masks and leading zeros."
+    },
+    {
+      "key": "drivers_license_state",
+      "name": "Driver's license state",
+      "group": "Sensitive identifiers",
+      "definition": "Explicit license-issuing state. Link to a license only when supported."
+    },
+    {
+      "key": "passport_number",
+      "name": "Passport number",
+      "group": "Sensitive identifiers",
+      "definition": "Source-labeled passport identifier. Nationality and ownership are separate facts."
+    },
+    {
+      "key": "document_issue_date",
+      "name": "Document issue date",
+      "group": "Sensitive identifiers",
+      "definition": "Explicit issue date. Its document relationship must be supported."
+    },
+    {
+      "key": "card_pan",
+      "name": "Card PAN",
+      "group": "Payment cards",
+      "definition": "Explicit card values passing configured length/checksum rules; never inferred from arbitrary numbers."
+    },
+    {
+      "key": "card_bin",
+      "name": "Card BIN",
+      "group": "Payment cards",
+      "definition": "Explicit six/eight-digit BIN; not derived from account numbers."
+    },
+    {
+      "key": "merchant_name",
+      "name": "Merchant name",
+      "group": "Merchants",
+      "definition": "Requires explicit merchant evidence. Company alone is insufficient."
+    },
+    {
+      "key": "merchant_category_code",
+      "name": "Merchant category code (MCC)",
+      "group": "Merchants",
+      "definition": "Explicit merchant category code (MCC), stored as a text identifier."
+    },
+    {
+      "key": "source_ip",
+      "name": "Source IP",
+      "group": "Network and devices",
+      "definition": "Source IP values passing syntax validation."
+    },
+    {
+      "key": "destination_ip",
+      "name": "Destination IP",
+      "group": "Network and devices",
+      "definition": "Destination IP values passing syntax validation."
+    },
+    {
+      "key": "domain",
+      "name": "Domain",
+      "group": "Network and devices",
+      "definition": "Domain strings passing the configured syntax check."
+    },
+    {
+      "key": "url",
+      "name": "URL",
+      "group": "Network and devices",
+      "definition": "HTTP/HTTPS URL strings passing the configured syntax check."
+    },
+    {
+      "key": "device_fingerprint",
+      "name": "Device fingerprint",
+      "group": "Network and devices",
+      "definition": "Source-reported device identifiers."
+    },
+    {
+      "key": "browser_user_agent",
+      "name": "User agent",
+      "group": "Network and devices",
+      "definition": "Source-reported user-agent strings."
+    },
+    {
+      "key": "domain_creation_date",
+      "name": "Domain creation date",
+      "group": "Network and devices",
+      "definition": "Source-reported domain creation date. Link to the domain only when explicit."
+    },
+    {
+      "key": "domain_registrar",
+      "name": "Domain registrar",
+      "group": "Network and devices",
+      "definition": "Registrar explicitly associated with a domain."
+    },
+    {
+      "key": "registrant_region",
+      "name": "Registrant region",
+      "group": "Network and devices",
+      "definition": "Source-reported registrant state/province."
+    },
+    {
+      "key": "crime_datetime",
+      "name": "Reported crime datetime",
+      "group": "Reporting and narrative",
+      "definition": "Source crime datetimes; timezone is preserved only when supplied."
+    },
+    {
+      "key": "reporter",
+      "name": "Reporter",
+      "group": "Reporting and narrative",
+      "definition": "Source Reported By values; not assumed to be the actor or victim."
+    },
+    {
+      "key": "incident_type",
+      "name": "Incident type",
+      "group": "Incident details",
+      "definition": "Source-reported incident classification. Retain the original label and supporting narrative."
+    },
+    {
+      "key": "fraud_channel",
+      "name": "Fraud channel",
+      "group": "Incident details",
+      "definition": "Reported channel through which activity occurred, such as web, phone or ATM."
+    },
+    {
+      "key": "geographic_area",
+      "name": "Geographic area",
+      "group": "Incident details",
+      "definition": "Source-reported geographic scope of activity. It is not a person address."
+    },
+    {
+      "key": "reported_tactics",
+      "name": "Reported tactics",
+      "group": "Incident details",
+      "definition": "Source description of tactics or TTPs. Preserve original wording."
+    },
+    {
+      "key": "fraud_indicators",
+      "name": "Fraud indicators",
+      "group": "Incident details",
+      "definition": "Source-reported fraud indicators as narrative evidence."
+    },
+    {
+      "key": "complaint_reference",
+      "name": "Complaint reference",
+      "group": "Incident details",
+      "definition": "Source complaint reference, separate from MISP and CyFin event identifiers."
+    },
+    {
+      "key": "transaction_type",
+      "name": "Transaction type",
+      "group": "Transactions",
+      "definition": "Source description of a transfer, payment or other transaction type."
+    },
+    {
+      "key": "transaction_status",
+      "name": "Transaction status",
+      "group": "Transactions",
+      "definition": "Reported status such as sent, blocked or executed. Interpret the status in its transaction context."
+    },
+    {
+      "key": "transaction_memo",
+      "name": "Transaction memo",
+      "group": "Transactions",
+      "definition": "Memo associated with a reported transaction."
+    },
+    {
+      "key": "transaction_reference",
+      "name": "Transaction reference",
+      "group": "Transactions",
+      "definition": "Trace or payment-system reference. Preserve its source reference type."
+    },
+    {
+      "key": "check_number",
+      "name": "Check number",
+      "group": "Transactions",
+      "definition": "Check identifier, stored as text including masks and leading zeros."
+    },
+    {
+      "key": "process_date",
+      "name": "Process date",
+      "group": "Transactions",
+      "definition": "Source processing date. Keep separate from event date and crime datetime."
+    },
+    {
+      "key": "trade_action",
+      "name": "Buy / sell action",
+      "group": "Trading and brokerage",
+      "definition": "Reported buy/sell action or side. Generic Action labels need trade context."
+    },
+    {
+      "key": "order_number",
+      "name": "Order number",
+      "group": "Trading and brokerage",
+      "definition": "Order identifier stored as text. A single event can contain multiple orders."
+    },
+    {
+      "key": "security_cusip",
+      "name": "CUSIP",
+      "group": "Trading and brokerage",
+      "definition": "Source-labeled CUSIP security identifier, distinct from the stock symbol."
+    },
+    {
+      "key": "security_name",
+      "name": "Security name",
+      "group": "Trading and brokerage",
+      "definition": "Reported security or fund name."
+    },
+    {
+      "key": "price_per_share",
+      "name": "Price per share",
+      "group": "Trading and brokerage",
+      "definition": "Explicit per-share price. Preserve currency and the associated trade evidence."
+    },
+    {
+      "key": "reported_price",
+      "name": "Reported price",
+      "group": "Trading and brokerage",
+      "definition": "Price with an unspecified unit. Do not assume it means price per share."
+    },
+    {
+      "key": "execution_time",
+      "name": "Execution time",
+      "group": "Trading and brokerage",
+      "definition": "Reported execution time and supplied timezone. Do not invent a missing date or timezone."
+    },
+    {
+      "key": "reported_time",
+      "name": "Reported time",
+      "group": "Trading and brokerage",
+      "definition": "Source Time label whose event or transaction meaning needs context."
+    },
+    {
+      "key": "gain_loss",
+      "name": "Gain / loss",
+      "group": "Trading and brokerage",
+      "definition": "Reported gain/loss value. Preserve sign, currency and transaction evidence."
+    },
+    {
+      "key": "broker_number",
+      "name": "Broker number",
+      "group": "Trading and brokerage",
+      "definition": "Source-labeled broker identifier. Its issuing system must be retained or reviewed."
+    },
+    {
+      "key": "dtc_number",
+      "name": "DTC number",
+      "group": "Trading and brokerage",
+      "definition": "Source-labeled DTC number stored as an identifier."
+    },
+    {
+      "key": "contra_firm",
+      "name": "Counterparty firm",
+      "group": "Trading and brokerage",
+      "definition": "Reported counterparty firm. Association with an account requires explicit evidence."
+    },
+    {
+      "key": "contra_firm_account_number",
+      "name": "Counterparty account number",
+      "group": "Trading and brokerage",
+      "definition": "Account explicitly attributed to the counterparty firm."
+    },
+    {
+      "key": "broker_crd_number",
+      "name": "CRD number",
+      "group": "Trading and brokerage",
+      "definition": "Source-labeled CRD identifier, distinct from a generic broker number."
+    },
+    {
+      "key": "username",
+      "name": "Username",
+      "group": "Online identities",
+      "definition": "Source-reported username or login identifier. Preserve platform when stated."
+    },
+    {
+      "key": "telegram_handle",
+      "name": "Telegram handle",
+      "group": "Online identities",
+      "definition": "Telegram handle explicitly named in the source."
+    },
+    {
+      "key": "instagram_handle",
+      "name": "Instagram handle",
+      "group": "Online identities",
+      "definition": "Instagram handle explicitly named in the source."
+    },
+    {
+      "key": "whatsapp_id",
+      "name": "WhatsApp ID",
+      "group": "Online identities",
+      "definition": "WhatsApp identifier explicitly named in the source."
+    },
+    {
+      "key": "payment_token",
+      "name": "Payment token",
+      "group": "Online identities",
+      "definition": "Source-reported payment token. Its email/phone form does not by itself establish ownership."
+    },
+    {
+      "key": "skimmer_type",
+      "name": "Skimmer type",
+      "group": "Retail and skimming",
+      "definition": "Source description of the skimmer type, such as POS."
+    },
+    {
+      "key": "device_brand_model",
+      "name": "Device brand / model",
+      "group": "Retail and skimming",
+      "definition": "Brand/model reported in the skimming-device context."
+    },
+    {
+      "key": "device_count",
+      "name": "Device count",
+      "group": "Retail and skimming",
+      "definition": "Source-reported count in device context. Preserve the item counted."
+    },
+    {
+      "key": "store_number",
+      "name": "Store number",
+      "group": "Retail and skimming",
+      "definition": "Explicit store identifier, separate from the store or merchant name."
+    },
+    {
+      "key": "license_plate_number",
+      "name": "License plate number",
+      "group": "Vehicles",
+      "definition": "Source-reported vehicle plate identifier, including partial or masked forms."
+    },
+    {
+      "key": "license_plate_state",
+      "name": "License plate state",
+      "group": "Vehicles",
+      "definition": "State explicitly associated with a license plate."
+    },
+    {
+      "key": "vehicle_vin",
+      "name": "Vehicle VIN",
+      "group": "Vehicles",
+      "definition": "Explicit vehicle VIN. Preserve its vehicle relationship and validation status."
+    },
+    {
+      "key": "contract_date",
+      "name": "Contract date",
+      "group": "Property transactions",
+      "definition": "Source contract date. Preserve the contract or property association."
+    },
+    {
+      "key": "closing_date",
+      "name": "Closing date",
+      "group": "Property transactions",
+      "definition": "Source closing date. Preserve the transaction or property association."
+    },
+    {
+      "key": "file_md5",
+      "name": "File md5",
+      "group": "Threat intelligence",
+      "definition": "Explicit MISP source type/label value. Preserve provenance, format validation and permissions; no ownership/attribution inference."
+    },
+    {
+      "key": "file_sha1",
+      "name": "File sha1",
+      "group": "Threat intelligence",
+      "definition": "Explicit MISP source type/label value. Preserve provenance, format validation and permissions; no ownership/attribution inference."
+    },
+    {
+      "key": "file_sha256",
+      "name": "File sha256",
+      "group": "Threat intelligence",
+      "definition": "Explicit MISP source type/label value. Preserve provenance, format validation and permissions; no ownership/attribution inference."
+    },
+    {
+      "key": "file_imphash",
+      "name": "File imphash",
+      "group": "Threat intelligence",
+      "definition": "Explicit MISP source type/label value. Preserve provenance, format validation and permissions; no ownership/attribution inference."
+    },
+    {
+      "key": "file_ssdeep",
+      "name": "File ssdeep",
+      "group": "Threat intelligence",
+      "definition": "Explicit MISP source type/label value. Preserve provenance, format validation and permissions; no ownership/attribution inference."
+    },
+    {
+      "key": "file_name",
+      "name": "File name",
+      "group": "Threat intelligence",
+      "definition": "Explicit MISP source type/label value. Preserve provenance, format validation and permissions; no ownership/attribution inference."
+    },
+    {
+      "key": "file_size_bytes",
+      "name": "File size bytes",
+      "group": "Threat intelligence",
+      "definition": "Explicit MISP source type/label value. Preserve provenance, format validation and permissions; no ownership/attribution inference."
+    },
+    {
+      "key": "target_organization",
+      "name": "Target organization",
+      "group": "Threat intelligence",
+      "definition": "Explicit MISP source type/label value. Preserve provenance, format validation and permissions; no ownership/attribution inference."
+    },
+    {
+      "key": "observation_first_seen",
+      "name": "Observation first seen",
+      "group": "Threat intelligence",
+      "definition": "Explicit MISP source type/label value. Preserve provenance, format validation and permissions; no ownership/attribution inference."
+    },
+    {
+      "key": "observation_last_seen",
+      "name": "Observation last seen",
+      "group": "Threat intelligence",
+      "definition": "Explicit MISP source type/label value. Preserve provenance, format validation and permissions; no ownership/attribution inference."
+    },
+    {
+      "key": "reported_datetime",
+      "name": "Reported datetime",
+      "group": "Threat intelligence",
+      "definition": "Explicit MISP source type/label value. Preserve provenance, format validation and permissions; no ownership/attribution inference."
+    },
+    {
+      "key": "skimmer_location_name",
+      "name": "Skimmer venue / location name",
+      "group": "Retail and skimming",
+      "definition": "Name from Store label in an explicit skimming-device record. Not assumed to be a transaction merchant."
+    },
+    {
+      "key": "reported_ip",
+      "name": "Reported IP address",
+      "group": "Network and devices",
+      "definition": "Explicit IP address label without source/destination direction. Do not infer traffic direction."
+    }
+  ],
+  "rule_extension": "Explicit group 8 types; applies to offline CLI rule exports only. Frozen model schemas are unchanged."
+}

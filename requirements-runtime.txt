@@ -1,0 +1,11 @@
+# Versions of the local runtime used for verification. GLiNER2 source is vendored.
+torch==2.14.1
+transformers==5.22.2
+tokenizers==0.23.3
+huggingface_hub==2.4.0
+safetensors==0.8.0
+sentencepiece==0.2.3
+numpy==2.5.4
+pydantic==2.14.3
+rich==15.0.0
+requests==2.34.2

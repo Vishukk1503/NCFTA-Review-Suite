@@ -1,0 +1,6 @@
+* text=auto
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+# These files participate in byte-exact model contract checks.
+assets/** -text whitespace=cr-at-eol
