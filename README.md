@@ -4,6 +4,8 @@ Local v3 field extraction with a coloured terminal dashboard and Excel review. S
 
 ## Start here: Work PC setup
 
+**Intel GPU startup fix:** if setup says `Unexpected encoder execution device: ['GPU.0']`, apply the **[small Intel GPU fix](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases/download/v3.2.1/NCFTA-Intel-GPU-Fix.zip)** to your existing installation. Extract its two files (`intel_backend.py` and `BUNDLE-SHA256.json`) into the folder containing **Install-Work-PC.bat**, replace those files, then run **Install-Work-PC.bat** again. Keep your installed packages, model and settings. You do not need to download the full bundle again. The fix recognizes OpenVINO's equivalent `GPU` / `GPU.0` names and retains the FP32 and device checks.
+
 **[Download the complete Windows bundle (1.38 GB)](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases/download/v3.2.0/NCFTA-Review-Suite-Windows-v3.zip)**
 
 Filename: **NCFTA-Review-Suite-Windows-v3.zip**. It is uploaded under **[Releases → v3.2.0 → Assets](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases/tag/v3.2.0)**. It includes the trained v3 model, the FP32 Intel encoder, the application and the BAT installer. This repository and its release assets are public; anyone can download the bundle, including the model.
@@ -12,7 +14,7 @@ Filename: **NCFTA-Review-Suite-Windows-v3.zip**. It is uploaded under **[Release
 
 1. Download **NCFTA-Review-Suite-Windows-v3.zip** using the link above.
 2. Right-click the ZIP → **Extract All**, then open the extracted **NCFTA-Review-Suite** folder. Allow about 6 GB free for the model, environment and package downloads, plus space for saved runs.
-3. Double-click **Install-Work-PC.bat** inside that folder and wait for **SETUP COMPLETE**. It calls Python directly. The default profile targets Intel CPU + Arc/UHD GPU, including Core Ultra 9 285H / Arc 140T. The complete v3.2 bundle already includes the current installer; no extra update is needed.
+3. For Intel GPU, apply the small fix linked above, then double-click **Install-Work-PC.bat** inside that folder and wait for **SETUP COMPLETE**. It calls Python directly. The default profile targets Intel CPU + Arc/UHD GPU, including Core Ultra 9 285H / Arc 140T. The v3.2.0 bundle includes the BAT installer; the v3.2.1 update corrects the Intel GPU device-name check.
 4. Put your NCFTA API key in `.env`. The installer preserves an existing file and never prints the key.
 5. Double-click **Start-NCFTA.bat**. Select dates or saved JSON, groups (`all` means 6, 7, 8) and processing device. Choose **intel-gpu** for Intel acceleration.
 

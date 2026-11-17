@@ -69,6 +69,15 @@ def require_fp32(precisions):
     if values & reduced or not values & {'f32', 'fp32', 'float32'}:
         raise BackendError('Cannot confirm FP32 encoder computation: ' + ', '.join(sorted(values)))
 
+def require_execution_device(selected, execution):
+    # OpenVINO documents GPU as an alias for GPU.0. Discovery and compilation
+    # can return different spellings. Preserve every explicit device/tile index.
+    def canonical(device):
+        return 'GPU.0' if device == 'GPU' else device
+    if [canonical(device) for device in execution] != [canonical(selected)]:
+        raise BackendError(f'Unexpected encoder execution device: {execution}; requested {selected}')
+
+
 def attach(model, model_path):
     """Replace only the encoder execution; the original extraction head stays on CPU."""
     import torch
@@ -90,8 +99,7 @@ def attach(model, model_path):
             'PERFORMANCE_HINT': 'LATENCY',
         })
         execution = [str(d) for d in compiled.get_property('EXECUTION_DEVICES')]
-        if execution != [selected['id']]:
-            raise BackendError('Unexpected encoder execution device: ' + str(execution))
+        require_execution_device(selected['id'], execution)
         precisions = set()
         for node in compiled.get_runtime_model().get_ops():
             metadata = node.get_rt_info()
