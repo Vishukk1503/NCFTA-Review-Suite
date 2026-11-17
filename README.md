@@ -2,13 +2,21 @@
 
 Local v3 field extraction with a coloured terminal dashboard and Excel review. Supports NCFTA groups **6, 7 and 8** and saved JSON. This is separate from NCFTA-MISP-CLI.
 
-## Work PC setup
+## Start here: Work PC setup
 
-1. Download **NCFTA-Review-Suite-Windows-v3.zip** from [this repository's releases](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases). Use the named asset: GitHub's generated Source code ZIP excludes model weights.
-2. Extract to a writable folder. Allow about 6 GB free for the model, environment and package downloads, plus space for saved runs.
-3. Double-click **Install-Work-PC.bat**. It calls Python directly. The default profile targets Intel CPU + Arc/UHD GPU, including Core Ultra 9 285H / Arc 140T. For an existing v3.1 installation, extract **NCFTA-Review-Suite-BAT-Update.zip** into the existing suite folder first and replace the included files.
+**[Download the complete Windows bundle (1.38 GB)](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases/download/v3.2.0/NCFTA-Review-Suite-Windows-v3.zip)**
+
+Filename: **NCFTA-Review-Suite-Windows-v3.zip**. It is uploaded under **[Releases → v3.2.0 → Assets](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases/tag/v3.2.0)**. It includes the trained v3 model, the FP32 Intel encoder, the application and the BAT installer. This repository and its release assets are public; anyone can download the bundle, including the model.
+
+**For a fresh installation, use this complete bundle.** GitHub's **Code → Download ZIP**, **Source code (zip)** and the small **BAT-Update.zip** do not include the model. If setup reports `Missing file: assets/model-v3/model.safetensors`, download and extract the complete bundle linked above.
+
+1. Download **NCFTA-Review-Suite-Windows-v3.zip** using the link above.
+2. Right-click the ZIP → **Extract All**, then open the extracted **NCFTA-Review-Suite** folder. Allow about 6 GB free for the model, environment and package downloads, plus space for saved runs.
+3. Double-click **Install-Work-PC.bat** inside that folder and wait for **SETUP COMPLETE**. It calls Python directly. The default profile targets Intel CPU + Arc/UHD GPU, including Core Ultra 9 285H / Arc 140T. The complete v3.2 bundle already includes the current installer; no extra update is needed.
 4. Put your NCFTA API key in `.env`. The installer preserves an existing file and never prints the key.
 5. Double-click **Start-NCFTA.bat**. Select dates or saved JSON, groups (`all` means 6, 7, 8) and processing device. Choose **intel-gpu** for Intel acceleration.
+
+**Updating an existing full installation:** download the **[BAT update (24 KB)](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases/download/v3.2.0/NCFTA-Review-Suite-BAT-Update.zip)**, extract all its files into the existing suite folder, replace the included files, and rerun **Install-Work-PC.bat**. This update requires the model files from a complete installation.
 
 The BAT discovers Python 3.12 x64 or installs it through WinGet. The Python setup runner creates a local `.venv`, installs the pinned packages, and checks the model. It can install a missing Microsoft Visual C++ x64 runtime through WinGet; Windows/IT approval may be required. Packages come from PyPI and the official PyTorch index. No PowerShell is launched or required. Setup never fetches a different model, retrains, or contacts NCFTA.
 
