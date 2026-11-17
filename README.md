@@ -4,15 +4,25 @@ Local v3 field extraction with a coloured terminal dashboard and Excel review. S
 
 ## Work PC setup
 
-1. Download **NCFTA-Review-Suite-Windows-v3.zip** from [this private repository's releases](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases). Use the named asset: GitHub's generated Source code ZIP excludes model weights.
+1. Download **NCFTA-Review-Suite-Windows-v3.zip** from [this repository's releases](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases). Use the named asset: GitHub's generated Source code ZIP excludes model weights.
 2. Extract to a writable folder. Allow about 6 GB free for the model, environment and package downloads, plus space for saved runs.
-3. Double-click **Install-Work-PC.bat**. The default profile targets Intel CPU + Arc/UHD GPU, including Core Ultra 9 285H / Arc 140T.
+3. Apply **NCFTA-Review-Suite-Launcher-Fix.zip** from the same release into the extracted suite folder, replacing the included files. Then double-click **Install-Work-PC.bat**. The default profile targets Intel CPU + Arc/UHD GPU, including Core Ultra 9 285H / Arc 140T.
 4. Put your NCFTA API key in `.env`. The installer preserves an existing file and never prints the key.
 5. Double-click **Start-NCFTA.bat**. Select dates or saved JSON, groups (`all` means 6, 7, 8) and processing device. Choose **intel-gpu** for Intel acceleration.
 
 The installer creates a local Python 3.12 x64 `.venv`. It can install missing Python through WinGet and the Microsoft Visual C++ x64 runtime if needed; Windows/IT approval may be required for the latter. It installs packages from PyPI and the official PyTorch index. It never fetches a different model, retrains, or contacts NCFTA during setup.
 
 Excel uses **openpyxl**: Microsoft Excel, Node and Codex are not needed to create workbooks. The older optional Node exporter remains for existing configured installations.
+
+### If setup does not start
+
+The updated BAT immediately prints **NCFTA Review Suite - Work PC setup**, then **PowerShell installer started**. It shows the current stage and saves a transcript in `%TEMP%\NCFTA-Install-*.log`. PowerShell launch errors are also saved in the corresponding `.log.startup.txt` file. The exact paths appear in the window.
+
+**SETUP COMPLETE** is printed only after the installer confirms completion. **SETUP DID NOT COMPLETE** means setup failed; keep the window open and use the error above it. **Press any key to CLOSE this window** only closes the window. It does not start installation or open the app.
+
+If the only message is still **Press any key to continue**, you are not running the updated BAT. Extract **NCFTA-Review-Suite-Launcher-Fix.zip** into your existing suite folder and replace the included files. Run the BAT from that folder, outside the ZIP. The update does not contain model files; retain the full Windows bundle. It includes an updated `BUNDLE-SHA256.json` for the files after the update.
+
+All application launchers stay in the current window and preserve failure exit codes. `Start-NCFTA.cmd` is an alias for `Start-NCFTA.bat`. `Check-Intel-GPU.bat` forwards options such as `--help`, `--run` and `--samples` to the Intel check. `Open-Driver-Help.bat --list` prints the driver-help links without opening a browser. Direct PowerShell entry points return when finished; BAT files keep the window open until a key is pressed.
 
 ### Packages
 
@@ -108,7 +118,7 @@ Known model errors remain, including missed routing numbers and target organizat
 
 ## Development and distribution
 
-This private Git repository contains code and small verified assets. Large checkpoint/encoder files are in the private release ZIP. Credentials, NCFTA data, predictions, datasets, run folders and personal settings are excluded from both. Verify the release ZIP using `Get-FileHash -Algorithm SHA256` against `SHA256SUMS.txt`.
+This public Git repository contains code and small verified assets. Large checkpoint/encoder files are in the release ZIP. Credentials, NCFTA data, predictions, datasets, run folders and personal settings are excluded from both. Verify the release ZIP using `Get-FileHash -Algorithm SHA256` against `SHA256SUMS.txt`.
 
 The read-only `ncfta_client.py` originates from `Vishukk1503/NCFTA-MISP-CLI`, blob `295c16baac2cc635a322c7ec3c704d5703dc8040`. That repository is unchanged. Vendored GLiNER2's Apache 2.0 license is in `assets/GLINER2-LICENSE.txt`.
 
@@ -119,3 +129,5 @@ The read-only `ncfta_client.py` originates from `Vishukk1503/NCFTA-MISP-CLI`, bl
 Tests use synthetic records and mocked network calls. Setup smoke and saved-input comparisons are separate; the frozen test remains untouched.
 
 Release verification: 22 automated tests passed in a fresh Windows Python 3.12 environment. The PowerShell installer completed with `pip check`, portable Excel export, full asset checks and a one-input CPU/Intel UHD GPU agreement check using an empty model cache. Intel execution was confirmed as FP32. This does not establish Arc 140T performance or full validation accuracy.
+
+Launcher update verification: all 13 Windows launcher tests passed, including paths containing spaces and ampersands, missing files/runtime, argument forwarding, Python failures and silent PowerShell termination. Real menu launch/exit, CMD help, Intel help/error handling and browser-link dispatch also passed. The updated installer completed again with exit 0, package checks, Excel export and matching synthetic CPU/Intel FP32 inference using the existing isolated test environment. Python and Visual C++ were already installed; first-time prerequisite installation and the work PC's failure remain unverified.

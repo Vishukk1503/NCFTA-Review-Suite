@@ -1,2 +1,9 @@
 @echo off
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Start-NCFTA.ps1" %*
+if not exist "%~dp0Start-NCFTA.bat" (
+    echo ERROR: Start-NCFTA.bat is missing. Extract the complete suite first.
+    echo Press any key to CLOSE this window.
+    pause >nul
+    exit /b 1
+)
+call "%~dp0Start-NCFTA.bat" %*
+exit /b %ERRORLEVEL%
