@@ -80,7 +80,7 @@ def log(run,code,**values):
     with (run/'run.log').open('a',encoding='utf8') as f: f.write(json.dumps(dict(time=now(),code=code,**values))+'\n')
 def settings():
     cfg=read(HERE/('settings.json' if (HERE/'settings.json').is_file() else 'settings.example.json'))
-    for key in ['model','vendor','catalog','env','runs','node','artifact_modules']:
+    for key in ['model','vendor','catalog','env','runs','node','artifact_modules','ca_bundle']:
         if cfg.get(key):
             p=Path(os.path.expandvars(cfg[key])).expanduser()
             cfg[key]=str((HERE/p).resolve()) if not p.is_absolute() else str(p)
@@ -221,7 +221,10 @@ def credentials(cfg):
     return key
 
 class HTTPClient:
-    def __init__(self,url,key):
+    def __init__(self,url,key,ca_bundle=None):
+        from tls_support import configure_tls, TLSConfigurationError
+        try:self.verify,_=configure_tls(ca_bundle)
+        except TLSConfigurationError as exc:raise SuiteError(str(exc)) from None
         import requests
         self.session=requests.Session();self.url=url+'/events/restSearch'
         self.session.headers.update(Authorization=key,Accept='application/json',**{'Content-Type':'application/json'})
@@ -231,7 +234,7 @@ class HTTPClient:
         import requests
         body={'returnFormat':'json','sharinggroup':args['sharinggroup'],'from':args['date_from'],'to':args['date_to'],'page':args['page'],'limit':args['limit'],'metadata':False,'withAttachments':False}
         try:
-            r=self.session.post(self.url,json=body,timeout=(20,180),allow_redirects=False)
+            r=self.session.post(self.url,json=body,timeout=(20,180),allow_redirects=False,verify=self.verify)
             if r.status_code!=200:raise SuiteError(f'MISP HTTP {r.status_code}; response body withheld.')
             return r.json()
         except requests.RequestException:raise SuiteError('Network/TLS request failed; credentials and response withheld.') from None
@@ -252,8 +255,8 @@ def fetch(run,cfg,ui,client_factory=None):
     if client_factory:context=client_factory()
     elif mode=='pymisp':
         from ncfta_client import connect
-        context=connect(cfg['url'],key,180)
-    else:context=HTTPClient(cfg['url'],key)
+        context=connect(cfg['url'],key,180,cfg.get('ca_bundle'))
+    else:context=HTTPClient(cfg['url'],key,cfg.get('ca_bundle'))
     del key
     all_events=[];global_seen={};queries=[]
     with context as client:

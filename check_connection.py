@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import sys
 import time
+from tls_support import configure_tls, TLSConfigurationError
 
 HERE = Path(__file__).resolve().parent
 ENDPOINTS = ('/servers/getVersion', '/users/view/me', '/attributes/describeTypes.json')
@@ -49,7 +50,7 @@ def expected_json(path, payload):
     return isinstance(payload.get('result'), dict) and isinstance(payload['result'].get('types'), list)
 
 
-def probe(url, key, session, requests):
+def probe(url, key, session, requests, verify=True):
     # Authentication headers go only to this validated HTTPS origin. Never
     # follow a redirect or include any returned headers/body in the report.
     results = []
@@ -59,7 +60,7 @@ def probe(url, key, session, requests):
         try:
             with session.get(url + path,
                              headers={'Authorization': key, 'Accept': 'application/json'},
-                             timeout=(5, 10), allow_redirects=False, verify=True) as response:
+                             timeout=(5, 10), allow_redirects=False, verify=verify) as response:
                 row['http_status'] = response.status_code
                 if response.status_code != 200:
                     row['message'] = http_message(response.status_code)
@@ -86,15 +87,17 @@ def main():
     started = time.perf_counter()
     report = {'event_requests': 0, 'model_loaded': False, 'ok': False, 'checks': []}
     try:
-        import requests
         import suite
         cfg = suite.settings()
+        verify, report['tls_trust'] = configure_tls(cfg.get('ca_bundle'))
+        print('TLS trust: ' + report['tls_trust'] + '; verification enabled.', flush=True)
+        import requests
         suite.transport(cfg)  # Validates the HTTPS origin, without a request.
         key = suite.credentials(cfg)
         if not key.isascii() or any(c.isspace() for c in key) or key in ('YOUR_ACTUAL_KEY', 'YOUR_NCFTA_API_KEY', 'PASTE_YOUR_KEY_HERE'):
             raise suite.SuiteError('The API key appears to contain a placeholder, whitespace or non-ASCII text. Check .env; do not share the key.')
         with requests.Session() as session:
-            report['checks'] = probe(cfg['url'], key, session, requests)
+            report['checks'] = probe(cfg['url'], key, session, requests, verify=verify)
         del key
         report['ok'] = len(report['checks']) == len(ENDPOINTS) and all(row['ok'] for row in report['checks'])
         if report['ok']:
@@ -103,7 +106,8 @@ def main():
     except Exception as exc:
         # Only SuiteError is defined to contain safe local validation messages.
         module = sys.modules.get('suite')
-        report['message'] = str(exc) if module and isinstance(exc, module.SuiteError) else 'Connection check could not complete (' + type(exc).__name__ + '). No raw exception details were printed.'
+        safe_error = isinstance(exc, TLSConfigurationError) or (module and isinstance(exc, module.SuiteError))
+        report['message'] = str(exc) if safe_error else 'Connection check could not complete (' + type(exc).__name__ + '). No raw exception details were printed.'
         print('FAIL: ' + report['message'])
     report['elapsed_seconds'] = round(time.perf_counter() - started, 3)
     target = HERE / 'setup' / 'connection-report.json'

@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 from pymisp import PyMISP
 from pymisp.exceptions import PyMISPError
 import requests
+from tls_support import configure_tls, TLSConfigurationError
 
 
 class NCFTAClientError(Exception):
@@ -68,6 +69,10 @@ class ReadOnlyAdapter(requests.adapters.HTTPAdapter):
 
 @contextmanager
 def connect(url, key, timeout, ca_bundle=None):
+    try:
+        verify, _ = configure_tls(ca_bundle)
+    except TLSConfigurationError as exc:
+        raise NCFTAClientError(str(exc)) from None
     # PyMISP may log response bodies and headers. Keep those out of CLI logs.
     logger = logging.getLogger('pymisp')
     previous_disabled = logger.disabled
@@ -75,7 +80,7 @@ def connect(url, key, timeout, ca_bundle=None):
     parsed = urlsplit(url)
     adapter = ReadOnlyAdapter((parsed.scheme, parsed.netloc))
     try:
-        client = PyMISP(url, key, ssl=str(ca_bundle) if ca_bundle else True,
+        client = PyMISP(url, key, ssl=verify,
                         timeout=timeout, debug=False, https_adapter=adapter,
                         tool='NCFTA-ReadOnly-CLI')
         yield client
@@ -86,4 +91,3 @@ def connect(url, key, timeout, ca_bundle=None):
     finally:
         adapter.close()
         logger.disabled = previous_disabled
-
