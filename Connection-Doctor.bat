@@ -11,6 +11,10 @@ if not exist "%~dp0connection_windows.py" (
     echo ERROR: connection_windows.py is missing. Extract the complete Connection Doctor ZIP.
     goto finished
 )
+if not exist "%~dp0connection_rca.py" (
+    echo ERROR: connection_rca.py is missing. Extract all four files from the Connection Doctor ZIP.
+    goto finished
+)
 if defined NCFTA_PYTHON (
     if not exist "%NCFTA_PYTHON%" (
         echo ERROR: NCFTA_PYTHON points to a missing executable.

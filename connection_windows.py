@@ -208,7 +208,11 @@ def native_error(code):
 
 
 def winhttp_get(cfg, path='/users/view/me'):
-    """Authenticated metadata GET, native configured proxy, verified TLS.
+    return winhttp_request(cfg, path)
+
+
+def winhttp_request(cfg, path='/users/view/me', body=None):
+    """Authenticated metadata GET or bounded event-search POST, verified TLS.
 
     Redirects, cookies and automatic Windows-account authentication are disabled.
     No certificate flags are relaxed; extra PEM roots are not imported to Windows.
@@ -216,8 +220,13 @@ def winhttp_get(cfg, path='/users/view/me'):
     from types import SimpleNamespace
     from connection_doctor import response_facts, api_result, http_error, result, MAX_RESPONSE
     import json
-    if path not in ('/users/view/me', '/users/view/me.json'):
+    is_event = path == '/events/restSearch'
+    if (not is_event and (path not in ('/users/view/me', '/users/view/me.json') or body is not None)):
         return result('REFUSED', 'Native diagnostic endpoint is not allowed.')
+    if is_event:
+        from connection_doctor import event_body
+        if body != event_body(cfg):
+            return result('REFUSED', 'Native event request must use the bounded diagnostic filters.')
     win = dll('winhttp')
     open_session = bind(win, 'WinHttpOpen', P, [W.LPCWSTR, D, W.LPCWSTR, W.LPCWSTR, D])
     connect = bind(win, 'WinHttpConnect', P, [P, W.LPCWSTR, W.WORD, D])
@@ -232,19 +241,21 @@ def winhttp_get(cfg, path='/users/view/me'):
     close = bind(win, 'WinHttpCloseHandle', B, [P])
     handles = []
     try:
-        session = required(open_session('NCFTA-Connection-Doctor/1.3', 4, None, None, 0))
+        session = required(open_session('NCFTA-Connection-Doctor/1.4', 4, None, None, 0))
         handles.append(session)
         required(timeouts(session, 5000, 5000, 10000, 15000))
         connection = required(connect(session, cfg['host'], cfg['port'], 0))
         handles.append(connection)
-        request = required(open_request(connection, 'GET', path, None, None, None, 0x00800000))
+        request = required(open_request(connection, 'POST' if is_event else 'GET', path, None, None, None, 0x00800000))
         handles.append(request)
         disabled = D(1 | 2 | 4)  # cookies, redirects, automatic authentication
         required(set_option(request, 63, C.byref(disabled), C.sizeof(disabled)))
         decompress = D(3)  # gzip and deflate only
         required(set_option(request, 118, C.byref(decompress), C.sizeof(decompress)))
         headers = 'Accept: application/json\r\nContent-Type: application/json\r\nAuthorization: ' + cfg['key'] + '\r\n'
-        required(send(request, headers, len(headers), None, 0, 0, 0))
+        encoded_body = json.dumps(body).encode('utf-8') if is_event else b''
+        body_buffer = C.create_string_buffer(encoded_body) if encoded_body else None
+        required(send(request, headers, len(headers), body_buffer, len(encoded_body), len(encoded_body), 0))
         del headers
         required(receive(request, None))
         status, size = D(), D(C.sizeof(D))
@@ -258,7 +269,7 @@ def winhttp_get(cfg, path='/users/view/me'):
             if query(request, 65535, name, buffer, C.byref(length), None):
                 return buffer.value
             return ''
-        selected_headers = {name: header(name) for name in ('Content-Type', 'Content-Encoding', 'Server', 'Via', 'Location', 'WWW-Authenticate')}
+        selected_headers = {name: header(name) for name in ('Content-Type', 'Content-Encoding', 'Server', 'Via', 'Location', 'WWW-Authenticate', 'Date', 'CF-Ray', 'X-Request-ID', 'Retry-After')}
         cert_info = {}
         cert = P()
         size = D(C.sizeof(cert))
@@ -290,7 +301,7 @@ def winhttp_get(cfg, path='/users/view/me'):
             if len(data) > MAX_RESPONSE:
                 return result('SIZE_LIMIT', 'Windows HTTP response exceeded the diagnostic size limit.')
         response = SimpleNamespace(status_code=status.value, headers=selected_headers)
-        facts = response_facts(response, data)
+        facts = response_facts(response, data, cfg['key'])
         facts.update(cert_info)
         facts['native_proxy_policy'] = 'Windows system/user automatic configuration'
         facts['native_trust_policy'] = 'Windows certificate store; extra PEM not imported'
@@ -302,7 +313,7 @@ def winhttp_get(cfg, path='/users/view/me'):
             except (ValueError, UnicodeError):
                 row = result('NOT_JSON', 'Windows HTTP also received a non-JSON response.')
             else:
-                row = api_result('auth', payload)
+                row = api_result('events' if is_event else 'auth', payload, cfg.get('group'), cfg.get('start'), cfg.get('end'))
                 facts['body_kind'] = 'json'
                 facts.pop('_body_digest', None)
         row.update(facts)

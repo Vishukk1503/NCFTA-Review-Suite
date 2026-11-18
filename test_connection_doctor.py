@@ -87,11 +87,14 @@ class DoctorTests(unittest.TestCase):
         row, _, _ = self.probe('auth', payload={'version': 'test'})
         self.assertEqual(row['code'], 'SHAPE')
 
-    def test_http_failures_body_never_read(self):
+    def test_http_failures_keep_status_and_never_export_body(self):
         for status in (302, 401, 403, 404, 407, 429, 500, 502, 503):
             row, _, response = self.probe('auth', status, payload={PRIVATE: SECRET})
             self.assertEqual(row['code'], f'HTTP_{status}')
-            response.iter_content.assert_not_called()
+            if status == 302:
+                response.iter_content.assert_not_called()
+            else:
+                response.iter_content.assert_called_once()
 
     def test_network_failures_are_distinct_and_safe(self):
         for kind, expected in [(requests.exceptions.SSLError, 'TLS'), (requests.exceptions.ProxyError, 'PROXY'),
@@ -187,11 +190,11 @@ class DoctorTests(unittest.TestCase):
             with patch.object(doctor, 'run_step', step), contextlib.redirect_stdout(output):
                 code = doctor.main(['--suite-dir', str(root), '--from-date', '11/15/2026', '--to-date', '11/15/2026', '--groups', 'all'])
             self.assertEqual(code, 1)
-            self.assertEqual(calls, ['proxy', 'dns', 'routes', 'tcp', 'certificate', 'login', 'version', 'auth', 'types',
-                                     'native_auth', 'auth_anonymous', 'auth_json', 'events', 'events', 'events'])
+            self.assertEqual(calls, ['inventory', 'proxy', 'dns', 'routes', 'tcp', 'certificate', 'login', 'version', 'auth', 'types',
+                                     'native_auth', 'auth_anonymous', 'auth_json', 'sharing_groups'] + ['events'] * 9)
             report_text = (root / 'setup' / 'connection-doctor.json').read_text()
             self.assertNotIn(SECRET, report_text + output.getvalue())
-            self.assertEqual(json.loads(report_text)['event_requests'], 3)
+            self.assertEqual(json.loads(report_text)['event_requests'], 9)
 
     def test_bat_spaces_metacharacters_and_exit_code(self):
         if os.name != 'nt':
@@ -201,6 +204,7 @@ class DoctorTests(unittest.TestCase):
             root.mkdir()
             shutil.copyfile(doctor.HERE / 'Connection-Doctor.bat', root / 'Connection-Doctor.bat')
             (root / 'connection_windows.py').write_text('# synthetic placeholder\n')
+            (root / 'connection_rca.py').write_text('# synthetic placeholder\n')
             for exit_code in (0, 7):
                 (root / 'connection_doctor.py').write_text(f'import sys; print("ARGS="+str(sys.argv[1:])); sys.exit({exit_code})')
                 command = f'"{os.environ["COMSPEC"]}" /d /c call "{root / "Connection-Doctor.bat"}" --metadata-only'
@@ -231,7 +235,7 @@ class DoctorTests(unittest.TestCase):
             self.assertEqual(report['event_requests'], 0)
             self.assertNotIn(SECRET, json.dumps(report))
 
-    def test_default_fetches_all_three_groups_once_and_reports_counts(self):
+    def test_default_compares_three_clients_per_group_and_reports_counts(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
             root = Path(directory)
             (root / 'settings.json').write_text(json.dumps({'url': self.cfg()['url']}))
@@ -239,8 +243,8 @@ class DoctorTests(unittest.TestCase):
             fetched = []
             def step(kind, label, cfg, seconds=25):
                 if kind == 'events':
-                    fetched.append((cfg['group'], cfg['start'], cfg['end']))
-                    self.assertEqual(seconds, 30)
+                    fetched.append((cfg['group'], cfg['event_variant'], cfg['start'], cfg['end']))
+                    self.assertEqual(seconds, 70 if cfg['event_variant'] == 'suite' else 30)
                     return dict(step=kind, label=label, group=cfg['group'], code='PASS', message='synthetic',
                                 events=1, objects=2, attributes=5, direct_attributes=1, object_attributes=4)
                 return dict(step=kind, label=label, code='HTTP_403' if kind == 'auth_anonymous' else 'PASS', message='synthetic')
@@ -248,10 +252,10 @@ class DoctorTests(unittest.TestCase):
             with patch.object(doctor, 'run_step', step), patch('builtins.input', side_effect=['11/11/2026', '11/14/2026']) as prompts, contextlib.redirect_stdout(output):
                 self.assertEqual(doctor.main(['--suite-dir', str(root)]), 0)
             self.assertEqual(prompts.call_count, 2)
-            self.assertEqual(fetched, [(g, '2026-11-11', '2026-11-14') for g in (6, 7, 8)])
+            self.assertEqual(fetched, [(g, v, '2026-11-11', '2026-11-14') for g in (6, 7, 8) for v in ('python', 'native', 'suite')])
             report = json.loads((root / 'setup' / 'connection-doctor.json').read_text())
-            self.assertEqual(report['event_requests'], 3)
-            self.assertEqual(len(report['event_summary']), 3)
+            self.assertEqual(report['event_requests'], 9)
+            self.assertEqual(len(report['event_summary']), 9)
             for group in (6, 7, 8):
                 self.assertIn(f'Group {group}: fetched 1 event | 2 objects | 5 attributes', output.getvalue())
             self.assertNotIn('Event fetching was not tested', output.getvalue())
@@ -277,7 +281,7 @@ class DoctorTests(unittest.TestCase):
             output = io.StringIO()
             with patch.object(doctor, 'run_step', step), contextlib.redirect_stdout(output):
                 self.assertEqual(doctor.main(['--suite-dir', str(root), '--from-date', '2026-11-11', '--to-date', '2026-11-14']), 1)
-            self.assertEqual(fetched, [6, 7, 8])
+            self.assertEqual(fetched, [6] * 5 + [7] * 3 + [8] * 3)
             self.assertIn('Group 6: READ_TIMEOUT', output.getvalue())
             self.assertIn('Group 7: 0 visible events in this date range; group access remains unconfirmed', output.getvalue())
             self.assertIn('Group 8: fetched 1 event', output.getvalue())

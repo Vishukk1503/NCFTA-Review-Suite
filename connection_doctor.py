@@ -15,7 +15,7 @@ import time
 from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
-VERSION = '1.3'
+VERSION = '1.4'
 MAX_RESPONSE = 8 * 1024 * 1024
 
 
@@ -127,6 +127,8 @@ def proxy_summary(url):
 
 def network_error(exc, requests):
     kinds = (
+        (requests.exceptions.ContentDecodingError, 'DECOMPRESSION', 'Response decompression failed; compare the identity-encoding probe.'),
+        (requests.exceptions.ChunkedEncodingError, 'BODY_INTERRUPTED', 'Response body ended unexpectedly or had invalid transfer encoding.'),
         (requests.exceptions.SSLError, 'TLS', 'Certificate/hostname validation failed. Use the IT-approved CA bundle; verification was not disabled.'),
         (requests.exceptions.ProxyError, 'PROXY', 'The configured proxy connection failed.'),
         (requests.exceptions.ConnectTimeout, 'CONNECT_TIMEOUT', 'Connection establishment timed out before an HTTP response.'),
@@ -161,7 +163,20 @@ def api_result(kind, payload, group=None, start=None, end=None):
     if kind == 'version' and isinstance(payload, dict) and isinstance(payload.get('version'), str):
         return result('PASS', 'MISP version endpoint responded; this alone does not prove authentication.')
     if kind == 'auth' and isinstance(payload, dict) and isinstance(payload.get('User'), dict):
-        return result('PASS', 'User endpoint returned expected MISP user JSON; account details discarded.')
+        flags = {}
+        user = payload['User']
+        role = payload.get('Role', user.get('Role', {}))
+        if isinstance(role, dict) and role.get('perm_auth') in (True, False, 0, 1, '0', '1'):
+            flags['role_api_permission'] = role['perm_auth'] in (True, 1, '1')
+        return result('PASS', 'User endpoint returned expected MISP user JSON; account details discarded.', **flags)
+    if kind == 'sharing_groups':
+        rows = payload.get('response', payload.get('SharingGroup')) if isinstance(payload, dict) else payload
+        if not isinstance(rows, list):
+            return result('SHAPE', 'Sharing-group metadata has an unrecognized shape; visibility remains unconfirmed.')
+        ids = {str(item.get('SharingGroup', item).get('id')) for item in rows
+               if isinstance(item, dict) and isinstance(item.get('SharingGroup', item), dict)}
+        return result('INFO', 'Sharing-group listing inspected; names/members discarded. Absence does not prove denial.',
+                      selected_groups_listed={str(group): str(group) in ids for group in (6, 7, 8)})
     if kind == 'types' and isinstance(payload, dict) and isinstance(payload.get('result'), dict) and isinstance(payload['result'].get('types'), list):
         return result('PASS', 'Attribute metadata endpoint responded.')
     if kind == 'events':
@@ -205,6 +220,10 @@ def response_facts(response, data, key=None):
     facts['server_product_markers'] = [name for name in ('cloudflare', 'nginx', 'apache', 'microsoft-iis', 'awselb', 'zscaler', 'netskope') if name in server]
     challenge = str(response.headers.get('WWW-Authenticate', '')).lower()
     facts['http_auth_schemes'] = [name for name in ('basic', 'bearer', 'negotiate', 'ntlm') if name in challenge]
+    from connection_rca import correlation_facts
+    facts.update(correlation_facts(response.headers))
+    if key and facts.get('correlation_ids'):
+        facts['correlation_ids'] = {name: value for name, value in facts['correlation_ids'].items() if value != key}
     location = str(response.headers.get('Location', '')).lower()
     facts['redirect_markers'] = [name for name, fragment in [('misp_login', '/users/login'), ('microsoft_sign_in', 'login.microsoftonline.com'), ('saml', 'saml')]
                                 if fragment in location]
@@ -250,6 +269,14 @@ def response_facts(response, data, key=None):
     return facts
 
 
+def event_body(cfg):
+    if cfg['group'] not in (6, 7, 8) or date_value(cfg['start']) > date_value(cfg['end']):
+        raise ConfigError('Invalid event scope.')
+    return dict(returnFormat='json', sharinggroup=[cfg['group']],
+                **{'from': cfg['start'], 'to': cfg['end']}, page=1, limit=1,
+                metadata=cfg.get('event_variant') == 'metadata', withAttachments=False)
+
+
 def http_probe(cfg, kind):
     # Native trust is enabled before importing requests, matching the suite fix.
     if sys.platform == 'win32':
@@ -259,12 +286,12 @@ def http_probe(cfg, kind):
     paths = {'login': '/users/login', 'version': '/servers/getVersion',
              'auth': '/users/view/me', 'types': '/attributes/describeTypes.json',
              'events': '/events/restSearch', 'auth_anonymous': '/users/view/me',
-             'auth_json': '/users/view/me.json'}
+             'auth_json': '/users/view/me.json', 'sharing_groups': '/sharing_groups/index.json'}
     headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
     authenticated = kind not in ('login', 'auth_anonymous')
     if authenticated:
         headers['Authorization'] = cfg['key']
-    args = dict(headers=headers, timeout=(5, 15), allow_redirects=False,
+    args = dict(headers=headers, timeout=(5, 60 if cfg.get('event_variant') == 'long_timeout' else 15), allow_redirects=False,
                 verify=cfg.get('ca_bundle') or True, stream=True)
     method = 'GET'
     if kind in ('login', 'auth_anonymous'):
@@ -275,24 +302,43 @@ def http_probe(cfg, kind):
         args['auth'] = NoImplicitAuth()
     if kind == 'events':
         method = 'POST'
-        args['json'] = dict(returnFormat='json', sharinggroup=[cfg['group']],
-                            **{'from': cfg['start'], 'to': cfg['end']},
-                            page=1, limit=1, metadata=False, withAttachments=False)
+        args['json'] = event_body(cfg)
+        if cfg.get('event_variant') == 'json_endpoint':
+            paths['events'] += '.json'
+        if cfg.get('event_variant') == 'identity':
+            headers['Accept-Encoding'] = 'identity'
     try:
         with requests.Session() as session:
             with session.request(method, cfg['url'] + paths[kind], **args) as response:
-                if response.status_code != 200:
+                if 300 <= response.status_code < 400:
                     row = http_error(response.status_code)
                     row.update(response_facts(response, b'', cfg['key'] if authenticated else None))
                     row.update(body_kind='not_read', response_bytes=None)
                     row.pop('_body_digest', None)
                     return row
                 data = bytearray()
+                truncated = False
                 for chunk in response.iter_content(65536):
                     data.extend(chunk)
+                    if response.status_code != 200 and len(data) >= 65536:
+                        data = data[:65536]
+                        truncated = True
+                        break
                     if len(data) > MAX_RESPONSE:
                         return result('SIZE_LIMIT', 'Response exceeded the 8 MB diagnostic limit; fetch itself may require a longer/larger request.')
                 facts = response_facts(response, data, cfg['key'] if authenticated else None)
+                if response.status_code != 200:
+                    row = http_error(response.status_code)
+                    facts['body_sample_truncated'] = truncated
+                    if not truncated:
+                        try:
+                            json.loads(data)
+                            facts['body_kind'] = 'json'
+                        except (ValueError, UnicodeError):
+                            pass
+                    facts.pop('_body_digest', None)
+                    row.update(facts)
+                    return row
                 if kind == 'login':
                     return result('PASS', 'Verified HTTPS returned a page; this does not establish that it is the real MISP login page.', **facts)
                 if facts.get('authorization_header_preserved') is False:
@@ -348,7 +394,19 @@ def tls_certificate(cfg):
 
 def worker(conn, kind, cfg):
     try:
-        if kind == 'dns':
+        if kind == 'inventory':
+            from connection_rca import inventory
+            row = inventory(cfg)
+        elif kind == 'events' and cfg.get('event_variant') == 'suite':
+            from connection_rca import suite_event_probe
+            row = suite_event_probe(cfg)
+        elif kind == 'events' and cfg.get('event_variant') == 'native':
+            if sys.platform == 'win32':
+                from connection_windows import winhttp_request
+                row = winhttp_request(cfg, '/events/restSearch', event_body(cfg))
+            else:
+                row = result('SKIP', 'WinHTTP is not available on this OS.')
+        elif kind == 'dns':
             entries = socket.getaddrinfo(cfg['host'], cfg['port'], type=socket.SOCK_STREAM)
             row = result('PASS', 'Hostname resolved.', address_count=len({entry[4][0] for entry in entries}))
         elif kind == 'tcp':
@@ -427,6 +485,7 @@ def run_step(kind, label, cfg, seconds=25, target=worker):
     row.update(step=kind, label=label, seconds=round(time.monotonic() - start, 2))
     if kind == 'events':
         row['group'] = cfg['group']
+        row['variant'] = cfg.get('event_variant', 'python')
     print(f"{row['code']} [{row['seconds']}s] {row['message']}", flush=True)
     if row.get('content_type'):
         size = 'body not read' if row['response_bytes'] is None else str(row['response_bytes']) + ' bytes'
@@ -459,6 +518,14 @@ def run_step(kind, label, cfg, seconds=25, target=worker):
         print('  Certificate issuer: ' + row['certificate_issuer'])
     if kind == 'certificate' and row.get('certificate_not_after'):
         print('  Certificate valid until: ' + row['certificate_not_after'])
+    if row.get('correlation_ids'):
+        print('  Request correlation: ' + json.dumps(row['correlation_ids']))
+    if kind == 'inventory':
+        for key in ('python_version', 'packages', 'suite_runtime_matches', 'network_files', 'output_storage', 'recent_run_states'):
+            if key in row:
+                print('  ' + key + ': ' + json.dumps(row[key]))
+    if row.get('selected_groups_listed'):
+        print('  Selected groups present in listing: ' + json.dumps(row['selected_groups_listed']))
     return row
 
 
@@ -495,7 +562,7 @@ def diagnosis(rows):
     event_rows = [r for r in api if r['step'] == 'events']
     failures = [r for r in api if r['code'] not in ('PASS', 'EMPTY')]
     messages = []
-    markers = {marker for r in rows for marker in r.get('page_markers', [])}
+    markers = {marker for r in rows if r['step'] not in ('login', 'auth_anonymous') for marker in r.get('page_markers', [])}
     primary = by_kind.get('auth', {})
     native = by_kind.get('native_auth', {})
     if primary.get('code') != 'PASS' and native.get('code') == 'PASS':
@@ -557,7 +624,8 @@ def event_summary(rows):
     for row in rows:
         if row['step'] != 'events':
             continue
-        prefix = f"Group {row['group']}: "
+        variant = row.get('variant', 'python')
+        prefix = f"Group {row['group']}" + (f" [{variant}]" if variant != 'python' else '') + ': '
         if row['code'] == 'PASS':
             messages.append(prefix + f"fetched 1 event | {row['objects']} objects | {row['attributes']} attributes "
                             f"({row['direct_attributes']} direct, {row['object_attributes']} in objects).")
@@ -590,8 +658,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     print(f'NCFTA Connection Doctor {VERSION} | BAT + Python | no model loading', flush=True)
     print('No settings changed. No keys, response bodies or event values printed/saved.')
-    print('Each check has a hard deadline and no retries. Direct DNS/TCP failures do not rule out proxy access.')
-    print('Default: connection checks + fetch up to ONE event each from groups 6, 7 and 8. --metadata-only skips events.')
+    print('Each check has a hard deadline; no retry loops. Direct DNS/TCP failures do not rule out proxy access.')
+    print('Default: connection checks + event probes for groups 6, 7 and 8, limit ONE per request. --metadata-only skips events.')
+    print('RCA compares Python, Windows and the installed suite. Failed requests trigger bounded format/payload/timeout probes.')
+    print('Each event request stays in your date range with limit=1; at most 18 event probes, no pagination. Overall checks: maximum 10 minutes.')
     root = args.suite_dir.resolve()
     report = dict(version=VERSION, utc=dt.datetime.now(dt.timezone.utc).isoformat(),
                   python='.'.join(map(str, sys.version_info[:3])), model_loaded=False,
@@ -599,6 +669,7 @@ def main(argv=None):
     started = time.monotonic()
     try:
         cfg = configuration(root)
+        cfg['suite_root'] = str(root)
         report['server_origin'] = cfg['url']
         print('Configured server: ' + cfg['url'])
         print('Settings parsed. TLS: Windows certificate store' if sys.platform == 'win32' else 'Settings parsed. TLS: default verified trust')
@@ -619,28 +690,52 @@ def main(argv=None):
             print('\nChoose the event date range. Event contents are read to count objects/attributes, then discarded.')
             selection = filters(args)
             report['filters'] = dict(start=selection[0], end=selection[1], groups=selection[2])
-            print('Fetch: ' + ', '.join(str(group) for group in selection[2]) + ' | maximum 1 event per group | attachments disabled')
+            print('Fetch: ' + ', '.join(str(group) for group in selection[2]) + ' | maximum 1 event per request | attachments disabled')
+        deadline = time.monotonic() + 600
+        def check(kind, label, probe_cfg, seconds=25):
+            remaining = deadline - time.monotonic()
+            if remaining < 1:
+                row = result('BUDGET', 'Overall ten-minute diagnostic budget reached; check not attempted.', step=kind, label=label, seconds=0)
+                if kind == 'events':
+                    row.update(group=probe_cfg['group'], variant=probe_cfg.get('event_variant', 'python'))
+                return row
+            row = run_step(kind, label, probe_cfg, min(seconds, remaining))
+            if kind == 'events':
+                row.update(group=probe_cfg['group'], variant=probe_cfg.get('event_variant', 'python'))
+            return row
+        report['checks'].append(check('inventory', 'Installed suite, runtime and recent fetch status', cfg, 15))
         for kind, label, timeout in [('proxy', 'Proxy/WPAD configuration', 10), ('dns', 'Local DNS', 10),
                                       ('routes', 'Windows routes and VPN indicators', 15), ('tcp', 'Direct TCP port', 12),
                                       ('certificate', 'Direct TLS issuer, validity and Windows trust', 20),
                                       ('login', 'TLS + login HTTPS (no key)', 25)]:
-            report['checks'].append(run_step(kind, label, cfg, timeout))
+            report['checks'].append(check(kind, label, cfg, timeout))
         if not cfg['key_issue']:
             for kind, label in [('version', 'GET /servers/getVersion'), ('auth', 'GET /users/view/me'),
                                 ('types', 'GET /attributes/describeTypes.json')]:
-                report['checks'].append(run_step(kind, label, cfg))
+                report['checks'].append(check(kind, label, cfg))
             for kind, label in [('native_auth', 'Windows WinHTTP: GET /users/view/me'),
                                 ('auth_anonymous', 'Anonymous comparison: GET /users/view/me'),
                                 ('auth_json', 'Explicit JSON format: GET /users/view/me.json')]:
-                report['checks'].append(run_step(kind, label, cfg, 30))
+                report['checks'].append(check(kind, label, cfg, 30))
             if selection:
+                report['checks'].append(check('sharing_groups', 'Sharing-group visibility (metadata only)', cfg))
                 start, end, groups = selection
                 for group in groups:
-                    report['event_requests'] += 1
-                    report['checks'].append(run_step('events', f'POST /events/restSearch group {group}',
-                                                     dict(cfg, group=group, start=start, end=end), 30))
+                    from connection_rca import followup_variants
+                    def event_check(variant, seconds=30):
+                        report['event_requests'] += 1
+                        row = check('events', f'Group {group}: {variant} event fetch',
+                                    dict(cfg, group=group, start=start, end=end, event_variant=variant), seconds)
+                        report['checks'].append(row)
+                        return row
+                    baseline = event_check('python')
+                    event_check('native')
+                    event_check('suite', 70)
+                    for variant in followup_variants(baseline):
+                        event_check(variant, 70 if variant == 'long_timeout' else 30)
         api = [r for r in report['checks'] if r['step'] in ('version', 'auth', 'types', 'events')]
-        report['ok'] = bool(api) and not cfg['key_issue'] and all(r['code'] in ('PASS', 'EMPTY') for r in api)
+        required_api = [r for r in api if r.get('variant', 'python') in ('python', 'suite')]
+        report['ok'] = bool(required_api) and not cfg['key_issue'] and all(r['code'] in ('PASS', 'EMPTY') for r in required_api)
         if any(r['step'] == 'auth_anonymous' and r['code'] == 'PASS' for r in report['checks']):
             report['ok'] = False
         del cfg
@@ -656,6 +751,8 @@ def main(argv=None):
     discard_body_digests(report['checks'])
     report['event_summary'] = event_summary(report['checks'])
     report['summary'] = diagnosis(report['checks'])
+    from connection_rca import analyse, text_report, screen_report
+    report['rca'] = analyse(report)
     if report['event_summary']:
         print('\nEVENT FETCH RESULTS')
         for message in report['event_summary']:
@@ -663,12 +760,15 @@ def main(argv=None):
     print('\nRESULT: ' + ('API CHECKS PASSED' if report['ok'] else 'CHECKS FAILED OR INCOMPLETE'))
     for message in report['summary']:
         print('  ' + message)
+    print('\n' + screen_report(report))
     report['elapsed_seconds'] = round(time.monotonic() - started, 2)
     try:
         directory = root / 'setup'
         directory.mkdir(exist_ok=True)
         (directory / 'connection-doctor.json').write_text(json.dumps(report, indent=2), encoding='utf8')
+        (directory / 'connection-rca.txt').write_text(text_report(report), encoding='utf8')
         print('Saved: setup/connection-doctor.json. All results are also on this screen.')
+        print('Diagnosis and next actions: setup/connection-rca.txt')
     except OSError:
         print('Report could not be saved; results remain above.')
     return 0 if report['ok'] else 1
