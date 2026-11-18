@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 
 import requests
 import connection_doctor as doctor
+import connection_windows as native
 
 SECRET = 'SECRET_TEST_KEY'
 PRIVATE = 'PRIVATE_EVENT_DATA'
@@ -38,7 +39,9 @@ class DoctorTests(unittest.TestCase):
             self.assertEqual(cfg['key'], SECRET)
             self.assertFalse(cfg['key_issue'])
             with patch.dict(os.environ, NCFTA_API_KEY='ENV_KEY'):
-                self.assertEqual(doctor.configuration(root)['key'], 'ENV_KEY')
+                parsed = doctor.configuration(root)
+                self.assertEqual(parsed['key'], 'ENV_KEY')
+                self.assertTrue(parsed['key_conflicts']['env_overrides_different_file_key'])
             for url in ('http://example.invalid', 'https://a:b@example.invalid', 'https://example.invalid/path', 'https://example.invalid?key=' + SECRET):
                 (root / 'settings.json').write_text(json.dumps({'url': url}))
                 with self.assertRaises(doctor.ConfigError) as caught:
@@ -168,7 +171,8 @@ class DoctorTests(unittest.TestCase):
             with patch.object(doctor, 'run_step', step), contextlib.redirect_stdout(output):
                 code = doctor.main(['--suite-dir', str(root), '--from-date', '11/15/2026', '--to-date', '11/15/2026', '--groups', 'all'])
             self.assertEqual(code, 1)
-            self.assertEqual(calls, ['proxy', 'dns', 'tcp', 'login', 'version', 'auth', 'types', 'events', 'events', 'events'])
+            self.assertEqual(calls, ['proxy', 'dns', 'routes', 'tcp', 'certificate', 'login', 'version', 'auth', 'types',
+                                     'native_auth', 'auth_anonymous', 'auth_json', 'events', 'events', 'events'])
             report_text = (root / 'setup' / 'connection-doctor.json').read_text()
             self.assertNotIn(SECRET, report_text + output.getvalue())
             self.assertEqual(json.loads(report_text)['event_requests'], 3)
@@ -180,6 +184,7 @@ class DoctorTests(unittest.TestCase):
             root = Path(directory) / 'suite & doctor'
             root.mkdir()
             shutil.copyfile(doctor.HERE / 'Connection-Doctor.bat', root / 'Connection-Doctor.bat')
+            (root / 'connection_windows.py').write_text('# synthetic placeholder\n')
             for exit_code in (0, 7):
                 (root / 'connection_doctor.py').write_text(f'import sys; print("ARGS="+str(sys.argv[1:])); sys.exit({exit_code})')
                 command = f'"{os.environ["COMSPEC"]}" /d /c call "{root / "Connection-Doctor.bat"}" --metadata-only'
@@ -188,6 +193,70 @@ class DoctorTests(unittest.TestCase):
                 self.assertEqual(run.returncode, exit_code, run.stdout + run.stderr)
                 self.assertIn('--metadata-only', run.stdout)
                 self.assertEqual(run.stdout.count('Press any key to CLOSE'), 1)
+
+    def test_anonymous_control_removes_implicit_credentials(self):
+        row, call, _ = self.probe('auth_anonymous', status=403)
+        self.assertNotIn('Authorization', call.kwargs['headers'])
+        prepared = requests.Request('GET', self.cfg()['url'], headers={'Authorization': SECRET}).prepare()
+        call.kwargs['auth'](prepared)
+        self.assertNotIn('Authorization', prepared.headers)
+        self.assertEqual(row['code'], 'HTTP_403')
+
+    def test_default_does_not_prompt_or_fetch_events(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+            root = Path(directory)
+            (root / 'settings.json').write_text(json.dumps({'url': self.cfg()['url']}))
+            (root / '.env').write_text('NCFTA_API_KEY=' + SECRET)
+            def step(kind, label, cfg, seconds=25):
+                return dict(step=kind, label=label, code='HTTP_403' if kind == 'auth_anonymous' else 'PASS', message='synthetic')
+            with patch.object(doctor, 'run_step', step), patch('builtins.input', side_effect=AssertionError('No prompts expected')), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(doctor.main(['--suite-dir', str(root)]), 0)
+            report = json.loads((root / 'setup' / 'connection-doctor.json').read_text())
+            self.assertEqual(report['event_requests'], 0)
+            self.assertNotIn(SECRET, json.dumps(report))
+
+    def test_native_client_difference_has_specific_diagnosis(self):
+        rows = [dict(step='auth', label='auth', code='NOT_JSON'), dict(step='native_auth', label='native', code='PASS')]
+        message = ' '.join(doctor.diagnosis(rows))
+        self.assertIn('WinHTTP authenticates successfully', message)
+        self.assertNotIn('VPN is the cause', message)
+        rows[1]['code'] = 'NOT_JSON'
+        self.assertIn('Both independent HTTP clients', ' '.join(doctor.diagnosis(rows)))
+
+    def test_native_request_disables_redirects_cookies_and_implicit_auth(self):
+        import ctypes as C
+        calls = []
+        def fake_bind(lib, name, restype, args):
+            def fn(*values):
+                calls.append((name, values))
+                if name == 'WinHttpQueryHeaders':
+                    if values[1] == 19 | 0x20000000:
+                        C.cast(values[3], C.POINTER(native.D)).contents.value = 302
+                        return 1
+                    return 0
+                if name == 'WinHttpQueryOption':
+                    return 0
+                if name == 'WinHttpReadData':
+                    C.cast(values[3], C.POINTER(native.D)).contents.value = 0
+                if name == 'WinHttpSetOption' and values[1] == 63:
+                    self.assertEqual(C.cast(values[2], C.POINTER(native.D)).contents.value, 7)
+                if name == 'WinHttpOpenRequest':
+                    self.assertEqual(values[-1], 0x00800000)
+                return 1
+            return fn
+        with patch.object(native, 'dll', return_value=object()), patch.object(native, 'bind', fake_bind):
+            row = native.winhttp_get(self.cfg())
+        self.assertEqual(row['code'], 'HTTP_302')
+        self.assertEqual(sum(name == 'WinHttpSendRequest' for name, _ in calls), 1)
+        self.assertEqual(sum(name == 'WinHttpCloseHandle' for name, _ in calls), 3)
+        self.assertNotIn(SECRET, json.dumps(row))
+        self.assertEqual(next(values for name, values in calls if name == 'WinHttpOpen')[1], 4)
+
+    def test_windows_inventory_reports_only_known_markers(self):
+        self.assertEqual(native.product_markers('SECRET_USER Netskope private custom adapter'), ['Netskope'])
+        self.assertEqual(native.product_markers('SECRET_USER private custom adapter'), [])
+        self.assertEqual(native.native_error(12175)['code'], 'TLS')
+        self.assertEqual(native.native_error(12167)['code'], 'PROXY')
 
 
 if __name__ == '__main__':

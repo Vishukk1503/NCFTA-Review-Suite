@@ -4,7 +4,11 @@ title NCFTA Connection Doctor
 set "RESULT=1"
 set "DOCTOR_PYTHON="
 if not exist "%~dp0connection_doctor.py" (
-    echo ERROR: Extract both Connection Doctor files beside Start-NCFTA.bat.
+    echo ERROR: Extract all Connection Doctor files beside Start-NCFTA.bat.
+    goto finished
+)
+if not exist "%~dp0connection_windows.py" (
+    echo ERROR: connection_windows.py is missing. Extract the complete Connection Doctor ZIP.
     goto finished
 )
 if defined NCFTA_PYTHON (
