@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import importlib.util
 import json
 import multiprocessing as mp
@@ -14,7 +15,7 @@ import time
 from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
-VERSION = '1.0'
+VERSION = '1.1'
 MAX_RESPONSE = 8 * 1024 * 1024
 
 
@@ -170,6 +171,50 @@ def api_result(kind, payload, group=None, start=None, end=None):
     return result('SHAPE', 'HTTP 200 JSON is not the expected MISP response; possible API/gateway mismatch.')
 
 
+def response_facts(response, data, key=None):
+    """Only fixed categories/booleans leave this function, never page text."""
+    content_type = str(response.headers.get('Content-Type', '')).split(';', 1)[0].strip().lower()
+    allowed_types = ('application/json', 'text/json', 'text/html', 'application/xhtml+xml',
+                     'text/plain', 'application/xml', 'text/xml', 'application/octet-stream')
+    facts = dict(http_status=response.status_code, tls_verified=True,
+                 content_type=content_type if content_type in allowed_types else 'other-or-missing',
+                 response_bytes=len(data))
+    prepared = getattr(response, 'request', None)
+    if key is not None and isinstance(getattr(prepared, 'headers', None), dict):
+        facts['authorization_header_preserved'] = prepared.headers.get('Authorization') == key
+    elif key is not None and prepared is not None:
+        # requests uses CaseInsensitiveDict, rather than a plain dict.
+        from collections.abc import Mapping
+        if isinstance(getattr(prepared, 'headers', None), Mapping):
+            facts['authorization_header_preserved'] = prepared.headers.get('Authorization') == key
+    sample = bytes(data[:512 * 1024]).decode('utf-8', errors='ignore').lower()
+    html = content_type in ('text/html', 'application/xhtml+xml') or any(
+        marker in sample for marker in ('<!doctype html', '<html', '<form', '<title'))
+    facts['body_kind'] = 'empty' if not data else ('html' if html else 'other')
+    markers = []
+    if html:
+        if 'data[user][password]' in sample and ('data[user][email]' in sample or 'misp' in sample):
+            markers.append('misp_login_form')
+        if any(x in sample for x in ('login.microsoftonline.com', 'login.windows.net', 'sign in to your account', 'samlrequest', 'okta-sign-in')):
+            markers.append('identity_sign_in')
+        if any(x in sample for x in ('cf-chl-', '/cdn-cgi/challenge-platform/', 'verify you are human', 'g-recaptcha', 'hcaptcha')):
+            markers.append('browser_challenge')
+        if any(x in sample for x in ('access denied', 'request blocked', 'web page blocked', 'url blocked', 'website blocked', 'policy violation')):
+            markers.append('access_block_message')
+        if 'zscaler' in sample:
+            markers.append('zscaler_reference')
+        if 'netskope' in sample:
+            markers.append('netskope_reference')
+        if 'forcepoint' in sample or 'websense' in sample:
+            markers.append('forcepoint_reference')
+        if 'blue coat' in sample or 'proxyexception' in sample:
+            markers.append('proxy_block_reference')
+    facts['page_markers'] = markers
+    # Used only to compare against the anonymous page; removed before reporting.
+    facts['_body_digest'] = hashlib.sha256(data).hexdigest()
+    return facts
+
+
 def http_probe(cfg, kind):
     # Native trust is enabled before importing requests, matching the suite fix.
     if sys.platform == 'win32':
@@ -179,7 +224,7 @@ def http_probe(cfg, kind):
     paths = {'login': '/users/login', 'version': '/servers/getVersion',
              'auth': '/users/view/me', 'types': '/attributes/describeTypes.json',
              'events': '/events/restSearch'}
-    headers = {'Accept': 'application/json'}
+    headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
     if kind != 'login':
         headers['Authorization'] = cfg['key']
     args = dict(headers=headers, timeout=(5, 15), allow_redirects=False,
@@ -193,25 +238,29 @@ def http_probe(cfg, kind):
     try:
         with requests.Session() as session:
             with session.request(method, cfg['url'] + paths[kind], **args) as response:
-                if kind == 'login':
-                    if response.status_code == 200 or 300 <= response.status_code < 400:
-                        return result('PASS', 'Verified HTTPS reached the login endpoint; no API key sent, no redirect followed.', http_status=response.status_code, tls_verified=True)
-                    row = http_error(response.status_code)
-                    row.update(tls_verified=True)
-                    row['message'] += ' TLS verification passed; this is an HTTP refusal, not a certificate error.'
-                    return row
                 if response.status_code != 200:
-                    return http_error(response.status_code)
+                    row = http_error(response.status_code)
+                    row['tls_verified'] = True
+                    return row
                 data = bytearray()
                 for chunk in response.iter_content(65536):
                     data.extend(chunk)
                     if len(data) > MAX_RESPONSE:
                         return result('SIZE_LIMIT', 'Response exceeded the 8 MB diagnostic limit; fetch itself may require a longer/larger request.')
+                facts = response_facts(response, data, cfg['key'] if kind != 'login' else None)
+                if kind == 'login':
+                    return result('PASS', 'Verified HTTPS returned a page; this does not establish that it is the real MISP login page.', **facts)
+                if facts.get('authorization_header_preserved') is False:
+                    return result('KEY_REPLACED', 'Prepared request did not retain the configured API-key header. Check implicit .netrc authentication.', **facts)
                 try:
                     payload = json.loads(data)
                 except (ValueError, UnicodeError):
-                    return result('NOT_JSON', 'HTTP 200 is not JSON; possible sign-in page or gateway response. Body discarded.')
-                return api_result(kind, payload, cfg.get('group'), cfg.get('start'), cfg.get('end'))
+                    return result('NOT_JSON', 'HTTP 200 is not valid JSON. See response type and fixed page markers below; body discarded.', **facts)
+                row = api_result(kind, payload, cfg.get('group'), cfg.get('start'), cfg.get('end'))
+                facts['body_kind'] = 'json'
+                facts.pop('_body_digest', None)
+                row.update(facts)
+                return row
     except requests.exceptions.RequestException as exc:
         return network_error(exc, requests)
 
@@ -284,6 +333,11 @@ def run_step(kind, label, cfg, seconds=25, target=worker):
     if kind == 'events':
         row['group'] = cfg['group']
     print(f"{row['code']} [{row['seconds']}s] {row['message']}", flush=True)
+    if row.get('content_type'):
+        print(f"  Response: {row['content_type']} | {row['body_kind']} | {row['response_bytes']} bytes")
+        print('  Page markers: ' + (', '.join(row['page_markers']) or 'none identified'))
+    if row.get('authorization_header_preserved') is False:
+        print('  KEY HEADER REPLACED: the prepared request did not retain the configured API key. Check implicit .netrc authentication.')
     if kind == 'proxy' and row['code'] == 'INFO':
         for name in ('requests_proxy', 'proxy_env', 'bypass_env', 'windows_manual_proxy', 'windows_pac'):
             if name in row:
@@ -326,6 +380,19 @@ def diagnosis(rows):
     event_rows = [r for r in api if r['step'] == 'events']
     failures = [r for r in api if r['code'] not in ('PASS', 'EMPTY')]
     messages = []
+    markers = {marker for r in api for marker in r.get('page_markers', [])}
+    if any(r.get('authorization_header_preserved') is False for r in api):
+        messages.append('The HTTP client replaced the API-key header before sending. Check implicit .netrc authentication; this is a client-side authentication issue.')
+    if 'misp_login_form' in markers:
+        messages.append('An API response contains a MISP login-form signature. Check API authentication and header handling; this is not a certificate failure.')
+    if 'identity_sign_in' in markers:
+        messages.append('An API response contains an identity sign-in marker. The API route needs an approved non-browser authentication path.')
+    if 'browser_challenge' in markers:
+        messages.append('An API response contains a browser-challenge marker. Ask the service/network administrator for approved API access; the utility does not bypass the challenge.')
+    if 'access_block_message' in markers:
+        messages.append('An API response contains an access-block message. Ask IT/NCFTA to check the policy for this API route.')
+    if any(r.get('same_body_as_login') is True for r in api):
+        messages.append('At least one API response is byte-for-byte identical to the anonymous login response. A common login/gateway response is being returned instead of API JSON; this alone does not identify its origin.')
     if failures:
         messages.append('Failed API checks: ' + '; '.join(r['label'] + ' = ' + r['code'] for r in failures) + '.')
     login = by_kind.get('login', {})
@@ -350,6 +417,14 @@ def diagnosis(rows):
     return messages
 
 
+def discard_body_digests(rows):
+    login_digest = next((r.get('_body_digest') for r in rows if r['step'] == 'login'), None)
+    for row in rows:
+        digest = row.pop('_body_digest', None)
+        if row['step'] != 'login' and digest and login_digest and row.get('response_bytes', 0):
+            row['same_body_as_login'] = digest == login_digest
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--metadata-only', action='store_true')
@@ -368,6 +443,8 @@ def main(argv=None):
     started = time.monotonic()
     try:
         cfg = configuration(root)
+        report['server_origin'] = cfg['url']
+        print('Configured server: ' + cfg['url'])
         print('Settings parsed. TLS: Windows certificate store' if sys.platform == 'win32' else 'Settings parsed. TLS: default verified trust')
         print('Additional CA bundle: ' + ('configured' if cfg['ca_bundle'] else 'none'))
         print('Key source: ' + cfg['key_source'] + '; suite transport: ' + cfg['transport'])
@@ -408,6 +485,7 @@ def main(argv=None):
     except Exception:
         report['error'] = 'Utility could not complete; no private exception details recorded.'
         print(report['error'])
+    discard_body_digests(report['checks'])
     report['summary'] = diagnosis(report['checks'])
     print('\nRESULT: ' + ('API CHECKS PASSED' if report['ok'] else 'CHECKS FAILED OR INCOMPLETE'))
     for message in report['summary']:

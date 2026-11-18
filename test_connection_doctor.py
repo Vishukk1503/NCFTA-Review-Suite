@@ -45,11 +45,13 @@ class DoctorTests(unittest.TestCase):
                     doctor.configuration(root)
                 self.assertNotIn(SECRET, str(caught.exception))
 
-    def probe(self, kind, status=200, payload=None, error=None):
+    def probe(self, kind, status=200, payload=None, error=None, raw=None, headers=None, prepared_key=SECRET):
         response = Mock(status_code=status)
+        response.headers = headers or {'Content-Type': 'application/json'}
+        response.request = requests.Request('GET', self.cfg()['url'], headers={'Authorization': prepared_key}).prepare()
         response.__enter__ = Mock(return_value=response)
         response.__exit__ = Mock(return_value=False)
-        response.iter_content.return_value = [json.dumps(payload).encode()]
+        response.iter_content.return_value = [json.dumps(payload).encode() if raw is None else raw]
         session = Mock()
         session.__enter__ = Mock(return_value=session)
         session.__exit__ = Mock(return_value=False)
@@ -68,7 +70,8 @@ class DoctorTests(unittest.TestCase):
 
     def test_login_never_sends_key_and_does_not_follow_redirect(self):
         row, call, response = self.probe('login', status=302)
-        self.assertEqual(row['code'], 'PASS')
+        self.assertEqual(row['code'], 'HTTP_302')
+        self.assertTrue(row['tls_verified'])
         self.assertNotIn('Authorization', call.kwargs['headers'])
         response.iter_content.assert_not_called()
 
@@ -93,6 +96,40 @@ class DoctorTests(unittest.TestCase):
                                (requests.exceptions.ConnectionError, 'CONNECTION'), (requests.exceptions.InvalidHeader, 'KEY_FORMAT')]:
             row, _, _ = self.probe('auth', error=kind(PRIVATE + SECRET))
             self.assertEqual(row['code'], expected)
+
+    def test_html_identification_never_exports_page_text(self):
+        html = ('<html><title>' + PRIVATE + '</title><form><input name="data[User][password]">'
+                '<input name="data[User][email]">' + SECRET + '</form></html>').encode()
+        row, call, _ = self.probe('auth', raw=html, headers={'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': SECRET})
+        self.assertEqual(row['code'], 'NOT_JSON')
+        self.assertEqual(row['page_markers'], ['misp_login_form'])
+        self.assertEqual(row['content_type'], 'text/html')
+        self.assertTrue(row['authorization_header_preserved'])
+        self.assertEqual(call.kwargs['headers']['Content-Type'], 'application/json')
+        row['step'] = 'auth'
+        row['label'] = 'auth'
+        login = dict(row, step='login', label='login', code='PASS')
+        rows = [login, row]
+        doctor.discard_body_digests(rows)
+        self.assertTrue(row['same_body_as_login'])
+        self.assertNotIn('_body_digest', json.dumps(rows))
+        self.assertIn('login-form', ' '.join(doctor.diagnosis(rows)))
+
+    def test_gateway_markers_are_fixed_categories_not_free_text(self):
+        for text, marker in [('Access denied Zscaler', 'access_block_message'),
+                             ('/cdn-cgi/challenge-platform/', 'browser_challenge'),
+                             ('login.microsoftonline.com', 'identity_sign_in')]:
+            row, _, _ = self.probe('auth', raw=('<html>' + text + PRIVATE + SECRET + '</html>').encode(),
+                                   headers={'Content-Type': 'text/html'})
+            self.assertIn(marker, row['page_markers'])
+        row, _, _ = self.probe('auth', raw=b'')
+        self.assertEqual(row['body_kind'], 'empty')
+
+    def test_implicit_auth_override_is_reported(self):
+        row, _, _ = self.probe('auth', payload={'User': {'email': PRIVATE}}, prepared_key='Basic REPLACED_SECRET')
+        self.assertEqual(row['code'], 'KEY_REPLACED')
+        self.assertFalse(row['authorization_header_preserved'])
+        self.assertNotIn('REPLACED_SECRET', json.dumps(row))
 
     def test_event_search_is_one_row_scoped_read_only(self):
         payload = {'response': [{'Event': {'sharing_group_id': '6', 'date': '2026-11-15', 'Attribute': [{'value': PRIVATE}]}}]}
