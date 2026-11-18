@@ -24,6 +24,12 @@ The BAT discovers Python 3.12 x64 or installs it through WinGet. The Python setu
 
 Excel uses **openpyxl**: Microsoft Excel, Node and Codex are not needed to create workbooks. The older optional Node exporter remains for existing configured installations.
 
+### Connection fails before fetching
+
+Older bundles display `Operation failed (NCFTAClientError); source details withheld.` This hides the underlying connection error; it does not identify whether the cause is authentication, permissions, network or TLS.
+
+Download the **[small connection check](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases/download/v3.2.1/NCFTA-Connection-Check.zip)** and extract its two files beside **Start-NCFTA.bat** in your existing installation. Double-click **Check-Connection.bat** and read the **FAIL** line. No reinstall, model download, file replacement or inference is required. It uses the same settings and API key as the suite and checks only three metadata endpoints with verified HTTPS and redirects disabled. It saves `setup/connection-report.json` without keys, response bodies, account information or source records. Passing these checks does not prove access to events or particular sharing groups. The repository now also preserves sanitized client errors; the already-published full v3.2.1 ZIP is unchanged.
+
 ### If setup does not start
 
 The BAT immediately prints **NCFTA Review Suite - BAT setup v3.2**, then **Python installer started**. The Python runner prints each stage, streams command output/errors, and saves a log under `setup/install-*.log` with a corresponding JSON status file. If the suite folder cannot hold a log, the runner uses the Windows temporary folder and displays its exact path.

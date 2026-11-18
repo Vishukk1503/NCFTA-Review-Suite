@@ -9,6 +9,16 @@ sys.path.insert(0, str(HERE / 'assets'))
 import source_input
 
 class SuiteError(Exception): pass
+
+def safe_failure_message(exc):
+    # The optional PyMISP module emits sanitized errors. Do not hide them again
+    # or import PyMISP on machines configured to use the requests transport.
+    client_module=sys.modules.get('ncfta_client')
+    safe_types=(SuiteError,)
+    if client_module is not None:
+        safe_types+=(client_module.NCFTAClientError,)
+    if isinstance(exc,safe_types):return str(exc)
+    return 'Operation failed ('+type(exc).__name__+'); source details withheld.'
 def terminal_console():
     from rich.console import Console
     # A visible PowerShell launcher can expose Python stdout as a pipe.
@@ -651,7 +661,7 @@ def main(argv=None):
             log(run,'interrupted');save(run/'status.json',dict(phase='interrupted',updated_utc=now()))
         print('Interrupted. Completed pages/predictions retained. Use resume.');return 130
     except Exception as exc:
-        message=str(exc) if isinstance(exc,SuiteError) else 'Operation failed ('+type(exc).__name__+'); source details withheld.'
+        message=safe_failure_message(exc)
         if run:
             import traceback
             close_interrupted_session(run)

@@ -12,6 +12,34 @@ class NCFTAClientError(Exception):
     """Sanitized connection error safe for terminal output."""
 
 
+def safe_connection_error(exc):
+    """Recover safe causes even when PyMISP wraps a request exception."""
+    pending = [exc]
+    seen = set()
+    causes = []
+    while pending:
+        item = pending.pop()
+        if id(item) in seen:
+            continue
+        seen.add(id(item))
+        causes.append(item)
+        pending.extend(cause for cause in (item.__cause__, item.__context__)
+                       if cause is not None)
+    for item in causes:
+        if isinstance(item, NCFTAClientError):
+            return item
+    for kind, message in (
+        (requests.exceptions.SSLError, 'TLS certificate verification failed. Ask IT for the trusted CA bundle; do not disable verification.'),
+        (requests.exceptions.ProxyError, 'Proxy connection failed. Check the work PC proxy or VPN settings with IT.'),
+        (requests.exceptions.Timeout, 'Connection timed out. Check the work PC network, VPN and server availability.'),
+        (requests.exceptions.ConnectionError, 'Network connection failed. Check DNS, firewall, VPN and server availability.'),
+        (requests.exceptions.InvalidHeader, 'API key header is invalid. Check the key formatting in .env.'),
+    ):
+        if any(isinstance(item, kind) for item in causes):
+            return NCFTAClientError(message)
+    return NCFTAClientError('PyMISP startup or API request failed. Run Check-Connection.bat to check endpoint access; raw server details remain hidden.')
+
+
 class ReadOnlyAdapter(requests.adapters.HTTPAdapter):
     def __init__(self, origin):
         super().__init__()
@@ -53,12 +81,9 @@ def connect(url, key, timeout, ca_bundle=None):
         yield client
     except NCFTAClientError:
         raise
-    except requests.exceptions.SSLError:
-        raise NCFTAClientError('TLS verification failed. Supply a trusted --ca-bundle if required.') from None
-    except (PyMISPError, requests.exceptions.RequestException):
-        raise NCFTAClientError('PyMISP connection or API request failed. Check key, API permissions, VPN, CA bundle and server compatibility.') from None
+    except (PyMISPError, requests.exceptions.RequestException) as exc:
+        raise safe_connection_error(exc) from None
     finally:
         adapter.close()
         logger.disabled = previous_disabled
-
 
