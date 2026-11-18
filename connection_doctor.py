@@ -15,7 +15,7 @@ import time
 from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
-VERSION = '1.2'
+VERSION = '1.3'
 MAX_RESPONSE = 8 * 1024 * 1024
 
 
@@ -177,7 +177,15 @@ def api_result(kind, payload, group=None, start=None, end=None):
             return result('SHAPE', 'Unexpected event response structure; body discarded.')
         if str(event.get('sharing_group_id')) != str(group) or not start <= str(event.get('date', '')) <= end:
             return result('SCOPE', 'Returned event does not match the requested group/date; filters need investigation.')
-        return result('PASS', 'One matching event received and discarded. Fetch access confirmed for this group/date.', events=1)
+        objects = event.get('Object', [])
+        direct = event.get('Attribute', [])
+        if (not isinstance(objects, list) or not isinstance(direct, list)
+                or any(not isinstance(obj, dict) or not isinstance(obj.get('Attribute', []), list) for obj in objects)):
+            return result('SHAPE', 'Event objects/attributes have an unexpected structure; body discarded.')
+        nested_count = sum(len(obj.get('Attribute', [])) for obj in objects)
+        return result('PASS', 'One matching event fetched. Fetch access confirmed for this group/date.',
+                      events=1, objects=len(objects), direct_attributes=len(direct),
+                      object_attributes=nested_count, attributes=len(direct) + nested_count)
     return result('SHAPE', 'HTTP 200 JSON is not the expected MISP response; possible API/gateway mismatch.')
 
 
@@ -470,7 +478,7 @@ def filters(args):
             end = date_value(args.to_date or input(f'End event date [{start}]: ').strip() or start)
             if start > end:
                 raise ValueError('Start date must not be after end date.')
-            raw = args.groups or input('Groups [all = 6 7 8]: ').strip() or 'all'
+            raw = args.groups or 'all'
             groups = [6, 7, 8] if raw.lower() == 'all' else sorted({int(x) for x in raw.replace(',', ' ').split()})
             if not groups or not set(groups) <= {6, 7, 8}:
                 raise ValueError('Groups must be 6, 7, 8 or all.')
@@ -544,6 +552,22 @@ def diagnosis(rows):
     return messages
 
 
+def event_summary(rows):
+    messages = []
+    for row in rows:
+        if row['step'] != 'events':
+            continue
+        prefix = f"Group {row['group']}: "
+        if row['code'] == 'PASS':
+            messages.append(prefix + f"fetched 1 event | {row['objects']} objects | {row['attributes']} attributes "
+                            f"({row['direct_attributes']} direct, {row['object_attributes']} in objects).")
+        elif row['code'] == 'EMPTY':
+            messages.append(prefix + '0 visible events in this date range; group access remains unconfirmed.')
+        else:
+            messages.append(prefix + row['code'] + ' - ' + row['message'])
+    return messages
+
+
 def discard_body_digests(rows):
     login_digest = next((r.get('_body_digest') for r in rows if r['step'] == 'login'), None)
     anonymous = next((r.get('_body_digest') for r in rows if r['step'] == 'auth_anonymous'), None)
@@ -557,8 +581,8 @@ def discard_body_digests(rows):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--metadata-only', action='store_true')
-    parser.add_argument('--events', action='store_true', help='Also ask for dates and test one event per selected group')
+    parser.add_argument('--metadata-only', action='store_true', help='Skip event fetching and date prompts')
+    parser.add_argument('--events', action='store_true', help='Fetch up to one event per group (now the default)')
     parser.add_argument('--from-date')
     parser.add_argument('--to-date')
     parser.add_argument('--groups', help='all, 6, 7, 8, or a quoted space/comma-separated list')
@@ -567,7 +591,7 @@ def main(argv=None):
     print(f'NCFTA Connection Doctor {VERSION} | BAT + Python | no model loading', flush=True)
     print('No settings changed. No keys, response bodies or event values printed/saved.')
     print('Each check has a hard deadline and no retries. Direct DNS/TCP failures do not rule out proxy access.')
-    print('Default: full connection diagnosis, no event fetch. --events adds optional group/date checks.')
+    print('Default: connection checks + fetch up to ONE event each from groups 6, 7 and 8. --metadata-only skips events.')
     root = args.suite_dir.resolve()
     report = dict(version=VERSION, utc=dt.datetime.now(dt.timezone.utc).isoformat(),
                   python='.'.join(map(str, sys.version_info[:3])), model_loaded=False,
@@ -591,10 +615,11 @@ def main(argv=None):
             if (module == 'requests' or sys.platform == 'win32') and importlib.util.find_spec(module) is None:
                 raise ConfigError('Missing ' + module + '. Run this from the installed suite Python environment.')
         selection = None
-        if not args.metadata_only and (args.events or args.from_date or args.to_date or args.groups) and not cfg['key_issue']:
-            print('\nEnter the SAME dates/groups that failed. Only the first event per group will be requested, then discarded.')
+        if not args.metadata_only and not cfg['key_issue']:
+            print('\nChoose the event date range. Event contents are read to count objects/attributes, then discarded.')
             selection = filters(args)
             report['filters'] = dict(start=selection[0], end=selection[1], groups=selection[2])
+            print('Fetch: ' + ', '.join(str(group) for group in selection[2]) + ' | maximum 1 event per group | attachments disabled')
         for kind, label, timeout in [('proxy', 'Proxy/WPAD configuration', 10), ('dns', 'Local DNS', 10),
                                       ('routes', 'Windows routes and VPN indicators', 15), ('tcp', 'Direct TCP port', 12),
                                       ('certificate', 'Direct TLS issuer, validity and Windows trust', 20),
@@ -629,7 +654,12 @@ def main(argv=None):
         report['error'] = 'Utility could not complete; no private exception details recorded.'
         print(report['error'])
     discard_body_digests(report['checks'])
+    report['event_summary'] = event_summary(report['checks'])
     report['summary'] = diagnosis(report['checks'])
+    if report['event_summary']:
+        print('\nEVENT FETCH RESULTS')
+        for message in report['event_summary']:
+            print('  ' + message)
     print('\nRESULT: ' + ('API CHECKS PASSED' if report['ok'] else 'CHECKS FAILED OR INCOMPLETE'))
     for message in report['summary']:
         print('  ' + message)

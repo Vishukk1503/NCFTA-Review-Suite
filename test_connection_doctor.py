@@ -135,10 +135,13 @@ class DoctorTests(unittest.TestCase):
         self.assertNotIn('REPLACED_SECRET', json.dumps(row))
 
     def test_event_search_is_one_row_scoped_read_only(self):
-        payload = {'response': [{'Event': {'sharing_group_id': '6', 'date': '2026-11-15', 'Attribute': [{'value': PRIVATE}]}}]}
+        payload = {'response': [{'Event': {'sharing_group_id': '6', 'date': '2026-11-15',
+                                          'Attribute': [{'value': PRIVATE}],
+                                          'Object': [{'Attribute': [{'value': PRIVATE}, {'value': PRIVATE}]}]}}]}
         row, call, _ = self.probe('events', payload=payload)
         self.assertEqual(row['code'], 'PASS')
         self.assertEqual(row['events'], 1)
+        self.assertEqual((row['objects'], row['attributes'], row['direct_attributes'], row['object_attributes']), (1, 3, 1, 2))
         self.assertEqual(call.args, ('POST', 'https://misp.example.invalid/events/restSearch'))
         self.assertEqual(call.kwargs['json'], {'returnFormat': 'json', 'sharinggroup': [6], 'from': '2026-11-15',
                                              'to': '2026-11-15', 'page': 1, 'limit': 1, 'metadata': False, 'withAttachments': False})
@@ -150,6 +153,17 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(row['code'], 'SCOPE')
         row, _, _ = self.probe('events', payload={'errors': PRIVATE})
         self.assertEqual(row['code'], 'API_ERROR')
+        payload['response'][0]['Event']['sharing_group_id'] = '6'
+        payload['response'][0]['Event']['date'] = '2026-11-14'
+        row, _, _ = self.probe('events', payload=payload)
+        self.assertEqual(row['code'], 'SCOPE')
+        payload['response'][0]['Event']['date'] = '2026-11-15'
+        payload['response'][0]['Event']['Object'] = {'bad': PRIVATE}
+        row, _, _ = self.probe('events', payload=payload)
+        self.assertEqual(row['code'], 'SHAPE')
+        payload['response'] *= 2
+        row, _, _ = self.probe('events', payload=payload)
+        self.assertEqual(row['code'], 'SCOPE')
 
     def test_hard_deadline_terminates_stalled_process(self):
         start = time.monotonic()
@@ -166,6 +180,8 @@ class DoctorTests(unittest.TestCase):
             calls = []
             def step(kind, label, cfg, seconds=25):
                 calls.append(kind)
+                if kind == 'events':
+                    return dict(step=kind, label=label, group=cfg['group'], code='EMPTY', events=0, message='synthetic')
                 return dict(step=kind, label=label, code='READ_TIMEOUT' if kind == 'version' else 'PASS', message='synthetic')
             output = io.StringIO()
             with patch.object(doctor, 'run_step', step), contextlib.redirect_stdout(output):
@@ -202,7 +218,7 @@ class DoctorTests(unittest.TestCase):
         self.assertNotIn('Authorization', prepared.headers)
         self.assertEqual(row['code'], 'HTTP_403')
 
-    def test_default_does_not_prompt_or_fetch_events(self):
+    def test_metadata_only_does_not_prompt_or_fetch_events(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
             root = Path(directory)
             (root / 'settings.json').write_text(json.dumps({'url': self.cfg()['url']}))
@@ -210,10 +226,61 @@ class DoctorTests(unittest.TestCase):
             def step(kind, label, cfg, seconds=25):
                 return dict(step=kind, label=label, code='HTTP_403' if kind == 'auth_anonymous' else 'PASS', message='synthetic')
             with patch.object(doctor, 'run_step', step), patch('builtins.input', side_effect=AssertionError('No prompts expected')), contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(doctor.main(['--suite-dir', str(root)]), 0)
+                self.assertEqual(doctor.main(['--suite-dir', str(root), '--metadata-only']), 0)
             report = json.loads((root / 'setup' / 'connection-doctor.json').read_text())
             self.assertEqual(report['event_requests'], 0)
             self.assertNotIn(SECRET, json.dumps(report))
+
+    def test_default_fetches_all_three_groups_once_and_reports_counts(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+            root = Path(directory)
+            (root / 'settings.json').write_text(json.dumps({'url': self.cfg()['url']}))
+            (root / '.env').write_text('NCFTA_API_KEY=' + SECRET)
+            fetched = []
+            def step(kind, label, cfg, seconds=25):
+                if kind == 'events':
+                    fetched.append((cfg['group'], cfg['start'], cfg['end']))
+                    self.assertEqual(seconds, 30)
+                    return dict(step=kind, label=label, group=cfg['group'], code='PASS', message='synthetic',
+                                events=1, objects=2, attributes=5, direct_attributes=1, object_attributes=4)
+                return dict(step=kind, label=label, code='HTTP_403' if kind == 'auth_anonymous' else 'PASS', message='synthetic')
+            output = io.StringIO()
+            with patch.object(doctor, 'run_step', step), patch('builtins.input', side_effect=['11/11/2026', '11/14/2026']) as prompts, contextlib.redirect_stdout(output):
+                self.assertEqual(doctor.main(['--suite-dir', str(root)]), 0)
+            self.assertEqual(prompts.call_count, 2)
+            self.assertEqual(fetched, [(g, '2026-11-11', '2026-11-14') for g in (6, 7, 8)])
+            report = json.loads((root / 'setup' / 'connection-doctor.json').read_text())
+            self.assertEqual(report['event_requests'], 3)
+            self.assertEqual(len(report['event_summary']), 3)
+            for group in (6, 7, 8):
+                self.assertIn(f'Group {group}: fetched 1 event | 2 objects | 5 attributes', output.getvalue())
+            self.assertNotIn('Event fetching was not tested', output.getvalue())
+            self.assertNotIn(SECRET, json.dumps(report) + output.getvalue())
+
+    def test_event_failure_still_checks_remaining_groups_and_empty_is_not_access(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+            root = Path(directory)
+            (root / 'settings.json').write_text(json.dumps({'url': self.cfg()['url']}))
+            (root / '.env').write_text('NCFTA_API_KEY=' + SECRET)
+            fetched = []
+            def step(kind, label, cfg, seconds=25):
+                if kind == 'events':
+                    fetched.append(cfg['group'])
+                    if cfg['group'] == 6:
+                        row = doctor.result('READ_TIMEOUT', 'Timed out.')
+                    elif cfg['group'] == 7:
+                        row = doctor.api_result('events', [], 7, cfg['start'], cfg['end'])
+                    else:
+                        row = doctor.api_result('events', [{'Event': {'sharing_group_id': '8', 'date': cfg['start']}}], 8, cfg['start'], cfg['end'])
+                    return dict(row, step=kind, label=label, group=cfg['group'])
+                return dict(step=kind, label=label, code='HTTP_403' if kind == 'auth_anonymous' else 'PASS', message='synthetic')
+            output = io.StringIO()
+            with patch.object(doctor, 'run_step', step), contextlib.redirect_stdout(output):
+                self.assertEqual(doctor.main(['--suite-dir', str(root), '--from-date', '2026-11-11', '--to-date', '2026-11-14']), 1)
+            self.assertEqual(fetched, [6, 7, 8])
+            self.assertIn('Group 6: READ_TIMEOUT', output.getvalue())
+            self.assertIn('Group 7: 0 visible events in this date range; group access remains unconfirmed', output.getvalue())
+            self.assertIn('Group 8: fetched 1 event', output.getvalue())
 
     def test_native_client_difference_has_specific_diagnosis(self):
         rows = [dict(step='auth', label='auth', code='NOT_JSON'), dict(step='native_auth', label='native', code='PASS')]

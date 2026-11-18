@@ -232,7 +232,7 @@ def winhttp_get(cfg, path='/users/view/me'):
     close = bind(win, 'WinHttpCloseHandle', B, [P])
     handles = []
     try:
-        session = required(open_session('NCFTA-Connection-Doctor/1.2', 4, None, None, 0))
+        session = required(open_session('NCFTA-Connection-Doctor/1.3', 4, None, None, 0))
         handles.append(session)
         required(timeouts(session, 5000, 5000, 10000, 15000))
         connection = required(connect(session, cfg['host'], cfg['port'], 0))
