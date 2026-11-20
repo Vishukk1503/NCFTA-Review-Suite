@@ -1,11 +1,11 @@
-# Snowflake JSON transport hotfix
+# Revised Snowflake hotfix (v2)
 
-1. Close the suite. Copy the contents of NCFTA-Snowflake-Hotfix.zip into your existing suite folder, replacing matching files. Keep .env, runs, models and your connection configuration.
-2. In Snowflake, using the role that owns your NCFTA procedures, run snowflake/08_json_transport_hotfix.sql once. It adds four exact-JSON text columns and a text file format, and replaces the three loader procedures. It does not drop tables or delete records.
-3. Start the suite, choose option 8 (Snowflake loader), and select the completed extraction. No model rerun is needed.
+1. Close the suite and copy the ZIP contents into the existing suite folder, replacing matching files. Keep .env, models, runs and connection settings.
+2. Run all of snowflake/08_json_transport_hotfix.sql in Snowflake. This revision replaces only the three procedures. It does not ALTER TABLE, change grants, or create file formats.
+3. Restart and choose option 8; select the completed extraction. No extraction rerun.
 
-The loader shows Rich activity indicators during validation, browser sign-in, upload and each layer, followed by inserted/unchanged counts. Failure details remain in the local load report and audit table.
+Both original RAW tables and tables partially upgraded by the first patch are accepted. Unused nullable companion columns can remain. Exact JSON is stored under reserved __ncfta_exact_json_v1 metadata inside existing VARIANT payload objects; original source keys remain queryable. Validation removes this metadata and reconstructs the exact original evidence. Source files are untouched. Collisions with that reserved key are rejected.
 
-Why: Snowflake numeric normalization can change canonical JSON hashes. Batch arguments now travel as JSON text, staged JSONL is read as text, and RAW stores exact JSON alongside queryable VARIANT values. Hash and path checks remain enforced.
+JSONL upload records are JSON strings containing canonical JSON, so the existing JSON file format preserves numeric representations. New _text filenames keep earlier staged files intact. Rich activity indicators and per-layer row counts remain included.
 
-Validation: 108 local tests passed, including numeric normalization, retry NO_OP, downstream validation, tampered evidence rejection and Rich rendering. No live Snowflake execution was available. Previously successful legacy batches without exact-JSON columns may need a separately reviewed backfill; this patch will not silently overwrite their evidence.
+This eliminates the table-alter requirement. Actual database access denials cannot be fixed or bypassed by Python. Procedure replacement and normal table/stage access still must be allowed. No live Snowflake connection was available for testing; do not interpret local tests as a verified work-PC load.

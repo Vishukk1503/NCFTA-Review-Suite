@@ -1,15 +1,4 @@
--- Additive JSON transport fix. No source data is deleted.
-USE DATABASE COMPLIANCE_SCREENING_SANDBOX;
-CREATE FILE FORMAT IF NOT EXISTS INTERNAL_STAGE.NCFTA_JSONL_TEXT_FF
- TYPE=CSV COMPRESSION=AUTO FIELD_DELIMITER=NONE RECORD_DELIMITER='\n'
- FIELD_OPTIONALLY_ENCLOSED_BY=NONE ESCAPE_UNENCLOSED_FIELD=NONE
- SKIP_HEADER=0 TRIM_SPACE=FALSE NULL_IF=() EMPTY_FIELD_AS_NULL=FALSE
- ENCODING='UTF8';
-ALTER TABLE RAW.NCFTA_BATCHES ADD COLUMN IF NOT EXISTS SOURCE_MANIFEST_JSON VARCHAR;
-ALTER TABLE RAW.NCFTA_EVENTS ADD COLUMN IF NOT EXISTS EVENT_PAYLOAD_JSON VARCHAR;
-ALTER TABLE RAW.NCFTA_MODEL_RESULTS ADD COLUMN IF NOT EXISTS SOURCE_RECORD_JSON VARCHAR;
-ALTER TABLE RAW.NCFTA_MODEL_RESULTS ADD COLUMN IF NOT EXISTS PREDICTION_JSON VARCHAR;
-
+-- Revised patch: procedure replacements only. No ALTER TABLE, grants, or new file formats.
 -- RAW loader v1. Prepared locally; requires Snowflake integration validation.
 -- Run after 01_staging_and_raw.sql and 02_audit.sql, outside a transaction.
 -- CALL only with a completed package created to the contract in README.md.
@@ -38,6 +27,7 @@ from datetime import date
 
 DB = 'COMPLIANCE_SCREENING_SANDBOX'
 STAGE = DB + '.INTERNAL_STAGE.NCFTA_STAGE'
+EVIDENCE_KEY = '__ncfta_exact_json_v1'
 AUDIT = DB + '.AUDIT_LAYER.NCFTA_LOAD_AUDIT'
 MAX_ROWS = 50000
 MAX_BYTES = 64 * 1024 * 1024
@@ -207,11 +197,16 @@ def restore_evidence(row):
     """Recover exact evidence while checking that the queryable VARIANT agrees."""
     row = dict(row)
     for key in ('SOURCE_MANIFEST', 'EVENT_PAYLOAD', 'SOURCE_RECORD', 'PREDICTION'):
-        exact = row.get(key + '_JSON')
+        payload = row.get(key)
+        embedded = payload.get(EVIDENCE_KEY) if isinstance(payload, dict) else None
+        if embedded is not None:
+            row[key] = {k:v for k,v in payload.items() if k != EVIDENCE_KEY}
+        exact = embedded if embedded is not None else row.get(key + '_JSON')
         if exact is not None:
             original = json.loads(exact)
             require(equivalent(original, row.get(key)), 'RAW_JSON_CONFLICT')
             row[key] = original
+            row[key + '_JSON'] = exact
     return row
 
 
@@ -290,7 +285,7 @@ def run(session, batch, files, load_run_id):
             step = 'READ_' + f['kind'].upper()
             # Only validated path characters enter SQL. Exact filename also filters prefix matches.
             query = f'''SELECT $1::VARCHAR, METADATA$FILENAME, METADATA$FILE_ROW_NUMBER, METADATA$FILE_CONTENT_KEY
-                FROM @{STAGE}/{f['path']} (FILE_FORMAT => '{DB}.INTERNAL_STAGE.NCFTA_JSONL_TEXT_FF')
+                FROM @{STAGE}/{f['path']} (FILE_FORMAT => '{DB}.INTERNAL_STAGE.NCFTA_JSONL_FF')
                 WHERE METADATA$FILENAME = ? ORDER BY METADATA$FILE_ROW_NUMBER'''
             checksum = hashlib.sha256()
             count = 0
@@ -322,7 +317,7 @@ def run(session, batch, files, load_run_id):
                 actual = sql(f'SELECT TO_JSON(OBJECT_CONSTRUCT_KEEP_NULL(*)) FROM {DB}.RAW.{table} WHERE SOURCE_BATCH_ID=?', [b['SOURCE_BATCH_ID']])
                 require(len(actual) == len(expected), 'EXISTING_ROW_COUNT')
                 key = {'NCFTA_BATCHES':'SOURCE_BATCH_ID','NCFTA_EVENTS':'EVENT_SNAPSHOT_ID','NCFTA_MODEL_RESULTS':'RESULT_ID'}[table]
-                indexed = {json.loads(a[0])[key]: json.loads(a[0]) for a in actual}
+                indexed = {json.loads(a[0])[key]: restore_evidence(json.loads(a[0])) for a in actual}
                 require(len(indexed) == len(actual), 'EXISTING_DUPLICATES')
                 for row in expected:
                     saved = indexed.get(row[key], {})
@@ -337,6 +332,10 @@ def run(session, batch, files, load_run_id):
                 require(not sql(f'SELECT 1 FROM {DB}.RAW.{table} WHERE SOURCE_BATCH_ID=? LIMIT 1', [b['SOURCE_BATCH_ID']]), 'ORPHAN_ROWS')
                 for row in rows:
                     values = dict(row, FIRST_LOAD_RUN_ID=load_run_id)
+                    for evidence in ('SOURCE_MANIFEST','EVENT_PAYLOAD','SOURCE_RECORD','PREDICTION'):
+                        if evidence in values:
+                            require(EVIDENCE_KEY not in values[evidence], 'RESERVED_JSON_KEY')
+                            values[evidence] = dict(values[evidence], **{EVIDENCE_KEY: values.pop(evidence + '_JSON')})
                     columns = list(values)
                     projections = []
                     for k in columns:
@@ -406,6 +405,7 @@ from datetime import date
 
 DB = 'COMPLIANCE_SCREENING_SANDBOX'
 STAGE = DB + '.INTERNAL_STAGE.NCFTA_STAGE'
+EVIDENCE_KEY = '__ncfta_exact_json_v1'
 AUDIT = DB + '.AUDIT_LAYER.NCFTA_LOAD_AUDIT'
 MAX_ROWS = 50000
 MAX_BYTES = 64 * 1024 * 1024
@@ -575,11 +575,16 @@ def restore_evidence(row):
     """Recover exact evidence while checking that the queryable VARIANT agrees."""
     row = dict(row)
     for key in ('SOURCE_MANIFEST', 'EVENT_PAYLOAD', 'SOURCE_RECORD', 'PREDICTION'):
-        exact = row.get(key + '_JSON')
+        payload = row.get(key)
+        embedded = payload.get(EVIDENCE_KEY) if isinstance(payload, dict) else None
+        if embedded is not None:
+            row[key] = {k:v for k,v in payload.items() if k != EVIDENCE_KEY}
+        exact = embedded if embedded is not None else row.get(key + '_JSON')
         if exact is not None:
             original = json.loads(exact)
             require(equivalent(original, row.get(key)), 'RAW_JSON_CONFLICT')
             row[key] = original
+            row[key + '_JSON'] = exact
     return row
 
 
@@ -788,6 +793,7 @@ from datetime import date
 
 DB = 'COMPLIANCE_SCREENING_SANDBOX'
 STAGE = DB + '.INTERNAL_STAGE.NCFTA_STAGE'
+EVIDENCE_KEY = '__ncfta_exact_json_v1'
 AUDIT = DB + '.AUDIT_LAYER.NCFTA_LOAD_AUDIT'
 MAX_ROWS = 50000
 MAX_BYTES = 64 * 1024 * 1024
@@ -957,11 +963,16 @@ def restore_evidence(row):
     """Recover exact evidence while checking that the queryable VARIANT agrees."""
     row = dict(row)
     for key in ('SOURCE_MANIFEST', 'EVENT_PAYLOAD', 'SOURCE_RECORD', 'PREDICTION'):
-        exact = row.get(key + '_JSON')
+        payload = row.get(key)
+        embedded = payload.get(EVIDENCE_KEY) if isinstance(payload, dict) else None
+        if embedded is not None:
+            row[key] = {k:v for k,v in payload.items() if k != EVIDENCE_KEY}
+        exact = embedded if embedded is not None else row.get(key + '_JSON')
         if exact is not None:
             original = json.loads(exact)
             require(equivalent(original, row.get(key)), 'RAW_JSON_CONFLICT')
             row[key] = original
+            row[key + '_JSON'] = exact
     return row
 
 

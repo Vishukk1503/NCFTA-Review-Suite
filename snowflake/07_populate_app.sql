@@ -22,6 +22,7 @@ from datetime import date
 
 DB = 'COMPLIANCE_SCREENING_SANDBOX'
 STAGE = DB + '.INTERNAL_STAGE.NCFTA_STAGE'
+EVIDENCE_KEY = '__ncfta_exact_json_v1'
 AUDIT = DB + '.AUDIT_LAYER.NCFTA_LOAD_AUDIT'
 MAX_ROWS = 50000
 MAX_BYTES = 64 * 1024 * 1024
@@ -191,11 +192,16 @@ def restore_evidence(row):
     """Recover exact evidence while checking that the queryable VARIANT agrees."""
     row = dict(row)
     for key in ('SOURCE_MANIFEST', 'EVENT_PAYLOAD', 'SOURCE_RECORD', 'PREDICTION'):
-        exact = row.get(key + '_JSON')
+        payload = row.get(key)
+        embedded = payload.get(EVIDENCE_KEY) if isinstance(payload, dict) else None
+        if embedded is not None:
+            row[key] = {k:v for k,v in payload.items() if k != EVIDENCE_KEY}
+        exact = embedded if embedded is not None else row.get(key + '_JSON')
         if exact is not None:
             original = json.loads(exact)
             require(equivalent(original, row.get(key)), 'RAW_JSON_CONFLICT')
             row[key] = original
+            row[key + '_JSON'] = exact
     return row
 
 

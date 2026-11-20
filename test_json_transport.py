@@ -45,3 +45,16 @@ class Tests(unittest.TestCase):
         with loader.activity(console,'Loading RAW'):
             console.print('RAW SUCCESS | inserted: 1')
         self.assertIn('RAW SUCCESS',stream.getvalue())
+
+    def test_transport_strings_preserve_numeric_evidence(self):
+        value={'metric':1.0,'text':'line\nwith backslash \\ and quote "'}
+        staged=raw.encoded(raw.encoded(value))
+        variant=json.loads(staged)
+        self.assertIsInstance(variant,str)
+        self.assertEqual(raw.encoded(json.loads(variant)),raw.encoded(value))
+
+    def test_patch_has_no_table_alter(self):
+        from pathlib import Path
+        sql=Path('snowflake/08_json_transport_hotfix.sql').read_text(encoding='utf-8')
+        self.assertNotIn('ALTER TABLE RAW.',sql)
+        self.assertNotIn('CREATE FILE FORMAT',sql)

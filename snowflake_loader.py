@@ -131,18 +131,19 @@ def build_package(run,cfg,source_cfg):
     except raw.Invalid as exc:raise LoadError('Package validation failed: '+str(exc)) from None
     need(all(sha(run/n)==value for n,value in before.items()),'Source files changed while preparing the package; retry after extraction stops.')
     dest=run/'snowflake-loads'/'packages'/b['SOURCE_BATCH_ID'];dest.mkdir(parents=True,exist_ok=True)
-    files=[];local={};total=0
+    files=[];local={};transport_hashes={};total=0
     for kind,values in [('events',events),('results',results)]:
         if not values:continue
-        content=''.join(raw.encoded(v)+'\n' for v in values).encode('utf-8');total+=len(content)
+        canonical=''.join(raw.encoded(v)+'\n' for v in values).encode('utf-8')
+        content=''.join(raw.encoded(raw.encoded(v))+'\n' for v in values).encode('utf-8');total+=len(content)
         need(total<=raw.MAX_BYTES,'Generated JSON exceeds the 64 MiB PoC limit.')
-        path=dest/(kind+'.jsonl');checksum=hashlib.sha256(content).hexdigest()
-        if path.exists():need(sha(path)==checksum,'Existing immutable Snowflake package differs; original files were not changed.')
+        path=dest/(kind+'_text.jsonl');checksum=hashlib.sha256(canonical).hexdigest();transport_checksum=hashlib.sha256(content).hexdigest()
+        if path.exists():need(sha(path)==transport_checksum,'Existing immutable Snowflake package differs; original files were not changed.')
         else:path.write_bytes(content)
         remote=b['SOURCE_BATCH_ID']+'/'+kind+'/'+path.name
-        files.append(dict(path=remote,kind=kind,rows=len(values),canonical_sha256=checksum));local[remote]=path
+        files.append(dict(path=remote,kind=kind,rows=len(values),canonical_sha256=checksum));local[remote]=path;transport_hashes[remote]=transport_checksum
     (dest/'package.json').write_text(json.dumps({'batch':batch,'files':files},ensure_ascii=False,indent=2),encoding='utf-8')
-    return {'batch':batch,'batch_id':b['SOURCE_BATCH_ID'],'files':files,'local':local,'folder':dest}
+    return {'batch':batch,'batch_id':b['SOURCE_BATCH_ID'],'files':files,'local':local,'transport_hashes':transport_hashes,'folder':dest}
 
 
 def parse_output(output):
@@ -172,7 +173,12 @@ class SnowCLI:
                 try:process.communicate(timeout=5)
                 except subprocess.TimeoutExpired:process.kill();process.communicate()
                 raise
-            need(process.returncode==0,'Snowflake CLI operation failed. Check login, deployed objects and privileges; source details withheld.')
+            if process.returncode != 0:
+                operation=re.match(r'\s*([A-Za-z]+)',query)
+                operation=operation.group(1).upper() if operation else 'SQL'
+                denied=re.search(r'insufficient privileges[^\r\n]*?\b(NCFTA_[A-Za-z_]+)',err+' '+out,re.I)
+                detail=('Access rejected for '+denied.group(1).upper()+'. ') if denied else ''
+                raise LoadError(operation+' failed. '+detail+'No automatic grant or table replacement was attempted.')
             return parse_output(out)
         finally:Path(name).unlink(missing_ok=True)
 
@@ -185,7 +191,10 @@ def preflight(client):
     actual={(r['TABLE_SCHEMA'],r['TABLE_NAME']):int(r['COLUMN_COUNT']) for r in tables}
     expected={('RAW','NCFTA_BATCHES'):23,('RAW','NCFTA_EVENTS'):15,('RAW','NCFTA_MODEL_RESULTS'):34,
               ('REFINED','NCFTA_FIELDS'):151,('REPORTING','NCFTA_APP'):62,('AUDIT_LAYER','NCFTA_LOAD_AUDIT'):40}
-    need(all(actual.get(k)==v for k,v in expected.items()),'Deploy and verify Snowflake scripts 01–07 first: required table definitions are missing or differ.')
+    minimum=dict(expected)
+    minimum.update({('RAW','NCFTA_BATCHES'):22,('RAW','NCFTA_EVENTS'):14,('RAW','NCFTA_MODEL_RESULTS'):32})
+    missing=[schema+'.'+table for (schema,table),count in minimum.items() if actual.get((schema,table),0)<count]
+    need(not missing,'Deployment incomplete or objects not visible: '+', '.join(missing)+'. Upload has not started.')
     procs=client.sql(f"SELECT PROCEDURE_SCHEMA,PROCEDURE_NAME FROM {raw.DB}.INFORMATION_SCHEMA.PROCEDURES WHERE PROCEDURE_NAME IN ('SP_LOAD_NCFTA_RAW','SP_POPULATE_NCFTA_REFINED','SP_POPULATE_NCFTA_APP');")
     need({('RAW','SP_LOAD_NCFTA_RAW'),('REFINED','SP_POPULATE_NCFTA_REFINED'),('REPORTING','SP_POPULATE_NCFTA_APP')} <= {(p['PROCEDURE_SCHEMA'],p['PROCEDURE_NAME']) for p in procs},'Required Snowflake procedures are missing or not visible to your role.')
     return context
@@ -230,7 +239,7 @@ def load_package(package,client,console,report_path):
         for f in package['files']:
             report['current_step']='UPLOAD_'+f['kind'].upper();save()
             path=package['local'][f['path']]
-            need(sha(path)==f['canonical_sha256'],'Prepared upload file changed; rebuild the package.')
+            need(sha(path)==package.get('transport_hashes',{}).get(f['path'],f['canonical_sha256']),'Prepared upload file changed; rebuild the package.')
             console.print('Uploading '+f['kind']+' JSON…')
             stage=f"@{raw.STAGE}/{bid}/{f['kind']}/"
             try:
