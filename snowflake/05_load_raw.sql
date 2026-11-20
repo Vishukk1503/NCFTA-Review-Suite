@@ -65,6 +65,8 @@ def text(value):
 
 
 def metadata(batch):
+    if isinstance(batch, str):
+        batch = json.loads(batch)
     required = {'SOURCE_RUN_NAME', 'SOURCE_INSTANCE_ID', 'SOURCE_MANIFEST',
                 'SOURCE_EVENTS_SHA256', 'SOURCE_RECORDS_SHA256', 'SOURCE_PREDICTIONS_SHA256',
                 'CATALOG_SHA256', 'MODEL_SHA256', 'ASSET_HASH', 'PREDICTION_IDENTITY',
@@ -89,7 +91,7 @@ def metadata(batch):
     identity = digest({'assets': batch['ASSET_HASH'], 'threshold': batch['THRESHOLD'], 'records': batch['SOURCE_RECORDS_SHA256']})
     require(identity == batch['PREDICTION_IDENTITY'], 'PREDICTION_IDENTITY')
     fingerprint = digest(batch)
-    return dict(batch, BATCH_FINGERPRINT=fingerprint, SOURCE_BATCH_ID=uid(fingerprint))
+    return dict(batch, BATCH_FINGERPRINT=fingerprint, SOURCE_BATCH_ID=uid(fingerprint), SOURCE_MANIFEST_JSON=encoded(batch['SOURCE_MANIFEST']))
 
 
 def validate_files(files, batch_id):
@@ -120,7 +122,7 @@ def prepare(batch, events, results):
         sid = uid(b['SOURCE_BATCH_ID'] + ':event:' + key)
         row = dict(EVENT_SNAPSHOT_ID=sid, SOURCE_BATCH_ID=b['SOURCE_BATCH_ID'], EVENT_KEY=key,
                    EVENT_UUID=text(e.get('uuid')), SOURCE_EVENT_ID=text(e.get('id')), EVENT_DATE=text(e.get('date')),
-                   EVENT_SHARING_GROUP_ID=text(e.get('sharing_group_id')), EVENT_PAYLOAD=e, PAYLOAD_SHA256=digest(e), **location)
+                   EVENT_SHARING_GROUP_ID=text(e.get('sharing_group_id')), EVENT_PAYLOAD=e, EVENT_PAYLOAD_JSON=encoded(e), PAYLOAD_SHA256=digest(e), **location)
         event_rows.append(row)
         objlist = e.get('Object') or []
         require(isinstance(objlist, list), 'OBJECT_LIST')
@@ -183,9 +185,32 @@ def prepare(batch, events, results):
                    SOURCE_ATTRIBUTE_SHA256=digest(a), INPUT_SHA256=p['input_hash'], PREDICTION_IDENTITY=p['identity'],
                    MODEL_SHA256=b['MODEL_SHA256'], OUTCOME_STATUS=status, SOURCE_ATTRIBUTE_DELETED=ad,
                    SOURCE_OBJECT_DELETED=od, IS_DELETED=deleted, SOURCE_RECORD=r, PREDICTION=p,
+                   SOURCE_RECORD_JSON=encoded(r), PREDICTION_JSON=encoded(p),
                    RESULT_PAYLOAD_SHA256=digest(envelope), **location)
         result_rows.append(row)
     return b, event_rows, result_rows
+
+
+def restore_evidence(row):
+    """Recover exact evidence while checking that the queryable VARIANT agrees."""
+    row = dict(row)
+    for key in ('SOURCE_MANIFEST', 'EVENT_PAYLOAD', 'SOURCE_RECORD', 'PREDICTION'):
+        exact = row.get(key + '_JSON')
+        if exact is not None:
+            original = json.loads(exact)
+            require(equivalent(original, row.get(key)), 'RAW_JSON_CONFLICT')
+            row[key] = original
+    return row
+
+
+def equivalent(a, b):
+    if isinstance(a, bool) or isinstance(b, bool):
+        return type(a) is type(b) and a == b
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(equivalent(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(equivalent(x, y) for x, y in zip(a, b))
+    return a == b
 
 
 def run(session, batch, files, load_run_id):
@@ -253,7 +278,7 @@ def run(session, batch, files, load_run_id):
             step = 'READ_' + f['kind'].upper()
             # Only validated path characters enter SQL. Exact filename also filters prefix matches.
             query = f'''SELECT $1::VARCHAR, METADATA$FILENAME, METADATA$FILE_ROW_NUMBER, METADATA$FILE_CONTENT_KEY
-                FROM @{STAGE}/{f['path']} (FILE_FORMAT => '{DB}.INTERNAL_STAGE.NCFTA_JSONL_FF')
+                FROM @{STAGE}/{f['path']} (FILE_FORMAT => '{DB}.INTERNAL_STAGE.NCFTA_JSONL_TEXT_FF')
                 WHERE METADATA$FILENAME = ? ORDER BY METADATA$FILE_ROW_NUMBER'''
             checksum = hashlib.sha256()
             count = 0

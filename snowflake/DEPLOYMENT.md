@@ -1,3 +1,5 @@
+Existing v3.3.0 installations: follow HOTFIX.md and run 08_json_transport_hotfix.sql once before loading.
+
 # NCFTA Snowflake setup
 
 [Download all SQL scripts as a ZIP](NCFTA-Snowflake-Scripts.zip?raw=true)

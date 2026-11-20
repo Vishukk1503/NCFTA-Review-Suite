@@ -1,7 +1,7 @@
 """Validate saved evidence and populate REFINED; never run a model."""
 import json
 import uuid
-from raw_loader import prepare, encoded, digest, uid, require, Invalid, DB, MAX_ROWS, MAX_BYTES
+from raw_loader import restore_evidence, prepare, encoded, digest, uid, require, Invalid, DB, MAX_ROWS, MAX_BYTES
 from refined_contract import SCHEMA, CATALOG_SHA256
 
 TRANSFORM_VERSION = 'refined-v1'
@@ -62,7 +62,10 @@ def transform(batch, row):
 
 def validate_raw(batch, events, results):
     """Revalidate complete RAW snapshot against source JSON before transformation."""
-    info = {k:v for k,v in batch.items() if k not in ('SOURCE_BATCH_ID','BATCH_FINGERPRINT','FIRST_LOAD_RUN_ID','REGISTERED_AT')}
+    batch = restore_evidence(batch)
+    events = [restore_evidence(r) for r in events]
+    results = [restore_evidence(r) for r in results]
+    info = {k:v for k,v in batch.items() if k not in ('SOURCE_BATCH_ID','BATCH_FINGERPRINT','FIRST_LOAD_RUN_ID','REGISTERED_AT','SOURCE_MANIFEST_JSON')}
     def location(row):
         return {k:row[k] for k in ('STAGED_FILENAME','FILE_RECORD_NUMBER','FILE_CONTENT_KEY')}
     calculated, ev, rs = prepare(info, [(e['EVENT_PAYLOAD'],location(e)) for e in events],

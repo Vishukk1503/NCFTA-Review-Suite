@@ -147,7 +147,7 @@ class Tests(unittest.TestCase):
         payload['Attribute'].append(second)
         record=copy.deepcopy(r[0]['SOURCE_RECORD']);record.update(attribute_id='4',source_hash=raw.digest(second),review_id='R'+raw.digest(['1','direct','4'])[:20])
         pred=copy.deepcopy(r[0]['PREDICTION']);pred['review_id']=record['review_id']
-        metadata={k:v for k,v in b.items() if k not in ('SOURCE_BATCH_ID','BATCH_FINGERPRINT')}
+        metadata={k:v for k,v in b.items() if k not in ('SOURCE_BATCH_ID','BATCH_FINGERPRINT','SOURCE_MANIFEST_JSON')}
         metadata.update(EXPECTED_ATTRIBUTES=2,EXPECTED_PREDICTION_RECORDS=2)
         loc={k:e[0][k] for k in ('STAGED_FILENAME','FILE_RECORD_NUMBER','FILE_CONTENT_KEY')}
         b,e,r=raw.prepare(metadata,[(payload,loc)],[({'source_record':r[0]['SOURCE_RECORD'],'prediction':r[0]['PREDICTION']},loc),({'source_record':record,'prediction':pred},loc)])

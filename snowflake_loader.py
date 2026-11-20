@@ -10,6 +10,17 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from contextlib import contextmanager
+
+
+@contextmanager
+def activity(console, label):
+    if hasattr(console, "status"):
+        with console.status(label, spinner="dots"):
+            yield
+    else:
+        yield
+
 
 HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE/'snowflake'))
@@ -172,7 +183,7 @@ def preflight(client):
     context=rows[0]
     tables=client.sql(f"SELECT TABLE_SCHEMA,TABLE_NAME,COUNT(*) AS COLUMN_COUNT FROM {raw.DB}.INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA IN ('RAW','REFINED','REPORTING','AUDIT_LAYER') GROUP BY TABLE_SCHEMA,TABLE_NAME;")
     actual={(r['TABLE_SCHEMA'],r['TABLE_NAME']):int(r['COLUMN_COUNT']) for r in tables}
-    expected={('RAW','NCFTA_BATCHES'):22,('RAW','NCFTA_EVENTS'):14,('RAW','NCFTA_MODEL_RESULTS'):32,
+    expected={('RAW','NCFTA_BATCHES'):23,('RAW','NCFTA_EVENTS'):15,('RAW','NCFTA_MODEL_RESULTS'):34,
               ('REFINED','NCFTA_FIELDS'):151,('REPORTING','NCFTA_APP'):62,('AUDIT_LAYER','NCFTA_LOAD_AUDIT'):40}
     need(all(actual.get(k)==v for k,v in expected.items()),'Deploy and verify Snowflake scripts 01–07 first: required table definitions are missing or differ.')
     procs=client.sql(f"SELECT PROCEDURE_SCHEMA,PROCEDURE_NAME FROM {raw.DB}.INFORMATION_SCHEMA.PROCEDURES WHERE PROCEDURE_NAME IN ('SP_LOAD_NCFTA_RAW','SP_POPULATE_NCFTA_REFINED','SP_POPULATE_NCFTA_APP');")
@@ -223,23 +234,26 @@ def load_package(package,client,console,report_path):
             console.print('Uploading '+f['kind']+' JSON…')
             stage=f"@{raw.STAGE}/{bid}/{f['kind']}/"
             try:
-                rows=client.sql(f"PUT {literal('file://'+path.resolve().as_posix())} {stage} AUTO_COMPRESS=FALSE OVERWRITE=TRUE;")
+                with activity(console, 'Uploading '+f['kind']+' JSON...'):
+                    rows=client.sql(f"PUT {literal('file://'+path.resolve().as_posix())} {stage} AUTO_COMPRESS=FALSE OVERWRITE=TRUE;")
                 need(len(rows)==1 and str(rows[0].get('status',rows[0].get('STATUS',''))).upper() in ('UPLOADED','SKIPPED'),'Upload did not confirm a staged file.')
             except BaseException:
                 try:audit_upload(f,'FAILED')
                 except BaseException:report['audit_status']='UPLOAD_AUDIT_UNCONFIRMED'
                 raise
             audit_upload(f,'SUCCESS');record('UPLOAD',kind=f['kind'],status='SUCCESS',rows=f['rows'])
-        calls=[('RAW',f"CALL {raw.DB}.RAW.SP_LOAD_NCFTA_RAW(PARSE_JSON({literal(raw.encoded(batch))}),PARSE_JSON({literal(raw.encoded(package['files']))})::ARRAY,{literal(load_id)});"),
+        calls=[('RAW',f"CALL {raw.DB}.RAW.SP_LOAD_NCFTA_RAW(TO_VARIANT({literal(raw.encoded(batch))}),PARSE_JSON({literal(raw.encoded(package['files']))})::ARRAY,{literal(load_id)});"),
                ('REFINED',f"CALL {raw.DB}.REFINED.SP_POPULATE_NCFTA_REFINED({literal(bid)},{literal(load_id)});"),
                ('APP',f"CALL {raw.DB}.REPORTING.SP_POPULATE_NCFTA_APP({literal(bid)},{literal(load_id)});")]
         for name,query in calls:
             console.print('Loading '+name+'…')
             report['current_step']=name;save()
-            result=procedure_result(client.sql(query),bid,load_id)
+            with activity(console, 'Loading '+name+' - waiting for Snowflake...'):
+                result=procedure_result(client.sql(query),bid,load_id)
             unchanged=result.get('unchanged')
             if name=='RAW':unchanged=(result.get('events',0)+result.get('results',0)) if result['status']=='NO_OP' else 0
             record(name,status=result['status'],inserted=result.get('inserted'),unchanged=unchanged)
+            console.print('[green]'+name+' '+result['status']+'[/green] | inserted: '+str(result.get('inserted', '-'))+' | unchanged: '+str(unchanged))
             if name=='RAW':
                 client.sql(f"UPDATE {raw.DB}.AUDIT_LAYER.NCFTA_LOAD_AUDIT SET STATUS='RUNNING',REQUESTED_TARGET='APP',FINISHED_AT=NULL WHERE LOAD_RUN_ID={literal(load_id)} AND STEP_NAME='RUN';")
         final_audit('SUCCESS');report['status']='SUCCESS';report['current_step']='COMPLETE';save()
@@ -265,14 +279,16 @@ def launch(source_cfg,run=None,connection=None,package_only=False):
         run=Path(run).resolve() if run else choose_run(source_cfg,console)
         with suite.lock(run):
             console.print('Validating completed extraction and preparing JSON…')
-            package=build_package(run,cfg,source_cfg)
+            with activity(console, 'Validating saved extraction...'):
+                package=build_package(run,cfg,source_cfg)
             if package_only:
                 console.print('Package ready: '+str(package['folder']),markup=False);return 0
             report_path=run/'snowflake-loads'/('load-'+uuid.uuid4().hex+'.json')
             report_path.write_text(json.dumps({'status':'CONNECTING','source_batch_id':package['batch_id']}),encoding='utf-8')
             client=SnowCLI(cfg)
             console.print('Connecting through '+cfg['connection']+'. Complete sign-in in your browser; the loader will wait.',markup=False)
-            context=preflight(client)
+            with activity(console, 'Connecting - complete browser sign-in...'):
+                context=preflight(client)
             console.print('Connected: '+str(context['ACCOUNT_NAME'])+' / '+str(context['ROLE_NAME'])+' / '+str(context['WAREHOUSE_NAME']),markup=False)
             report=load_package(package,client,console,report_path)
         from rich.table import Table
