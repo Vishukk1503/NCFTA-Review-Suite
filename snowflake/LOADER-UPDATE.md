@@ -1,5 +1,7 @@
 # Install the Snowflake loader update
 
+For the simpler complete download, use the v3.3.0 Windows release asset and [START-HERE.md](../START-HERE.md). That bundle already includes this loader; the patch below is only for older installations.
+
 This small update is for an existing NCFTA Review Suite Windows v3.2.1 installation. It contains application code and SQL, without model weights, credentials, local settings or extraction data.
 
 1. Close the suite and back up its folder.

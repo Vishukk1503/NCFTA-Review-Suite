@@ -8,7 +8,7 @@ Menu **8 — Load into Snowflake** selects a completed parent run, waits for bro
 SSO, uploads its saved JSON and runs RAW → REFINED → APP. After interactive Excel
 export, the suite also offers this step (default No). Extraction and Excel remain
 independent; no model reruns and no automatic upload on a normal command-line run.
-For an existing Windows installation, download the [Snowflake loader update](https://github.com/Vishukk1503/NCFTA-Review-Suite/raw/refs/heads/main/snowflake/NCFTA-Snowflake-Loader-Update.zip) and follow [the update instructions](snowflake/LOADER-UPDATE.md). The full v3.2.1 release ZIP below still needs this update.
+The [complete v3.3.0 Windows bundle](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases/download/v3.3.0/NCFTA-Review-Suite-Windows-v3.3.0.zip) includes the Snowflake loader, model assets and SQL scripts. No separate loader patch is needed. See [START-HERE.md](START-HERE.md).
 
 Use your existing Snowflake CLI `snow` and configured `cdp_prd` profile. Optionally
 copy `snowflake-loader.example.json` to `snowflake-loader.json` to change the profile,
@@ -40,7 +40,7 @@ See `snowflake/README.md` for contracts, limitations and deployment order.
 
 ## Start here: Work PC setup
 
-**[Download the complete v3.2.1 Windows bundle (1.38 GB)](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases/download/v3.2.1/NCFTA-Review-Suite-Windows-v3.zip)**
+**[Download the complete v3.3.0 Windows bundle](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases/download/v3.3.0/NCFTA-Review-Suite-Windows-v3.3.0.zip)**
 
 Filename: **NCFTA-Review-Suite-Windows-v3.zip**. It is uploaded under **[Releases → v3.2.1 → Assets](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases/tag/v3.2.1)**. This complete bundle already includes the Intel GPU device-name fix, the trained v3 model, the FP32 Intel encoder, the application and the BAT installer. **One ZIP is sufficient; no separate patch is needed for this bundle.** This repository and its release assets are public; anyone can download the bundle, including the model.
 

@@ -76,7 +76,7 @@ procedures does not call them.
 
 The separate suite loader prepares a completed extraction run's saved JSON,
 waits for browser SSO, uploads it and calls **RAW → REFINED → APP**. The published
-Windows release requires the [loader update](LOADER-UPDATE.md); installing these
+v3.3.0 Windows bundle includes the loader; older bundles require the [loader update](LOADER-UPDATE.md). Installing these
 SQL scripts alone does not add the menu option. Do not manually call the RAW
 procedure with Excel or arbitrary JSON: it expects the loader's validated package.
 
