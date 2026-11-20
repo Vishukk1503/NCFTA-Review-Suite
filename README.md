@@ -2,6 +2,42 @@
 
 Local v3 field extraction with a coloured terminal dashboard and Excel review. Supports NCFTA groups **6, 7 and 8** and saved JSON. This is separate from NCFTA-MISP-CLI.
 
+## Snowflake loader
+
+Menu **8 — Load into Snowflake** selects a completed parent run, waits for browser
+SSO, uploads its saved JSON and runs RAW → REFINED → APP. After interactive Excel
+export, the suite also offers this step (default No). Extraction and Excel remain
+independent; no model reruns and no automatic upload on a normal command-line run.
+For an existing Windows installation, download the [Snowflake loader update](https://github.com/Vishukk1503/NCFTA-Review-Suite/raw/refs/heads/main/snowflake/NCFTA-Snowflake-Loader-Update.zip) and follow [the update instructions](snowflake/LOADER-UPDATE.md). The full v3.2.1 release ZIP below still needs this update.
+
+Use your existing Snowflake CLI `snow` and configured `cdp_prd` profile. Optionally
+copy `snowflake-loader.example.json` to `snowflake-loader.json` to change the profile,
+source namespace or add `warehouse`. Do not put passwords or API keys there.
+Browser SSO uses the profile's account/user/role. CLI invocations may prompt again
+if your organization's connection caching is not enabled; the suite does not change
+that policy. Authentication and TLS settings remain managed by Snowflake CLI.
+
+Deploy and verify the numbered table/procedure scripts **01–07** in `snowflake/`
+before a live load. Use the current `05_load_raw.sql`: its run-ID check permits the
+uploader's preceding UPLOAD audit entries. Local checks do not establish that the
+SQL compiles or that the work-PC account has the necessary privileges.
+
+```powershell
+python suite.py snowflake --run "runs\YOUR-COMPLETED-RUN" --package-only
+python suite.py snowflake --run "runs\YOUR-COMPLETED-RUN" --connection cdp_prd
+```
+
+`--package-only` validates and writes JSON locally without connecting. The live
+command checks table/procedure availability before uploading. It stops on FAILED
+procedure responses, even when the CLI exits successfully. The terminal shows
+inserted/unchanged counts; sanitized local reports and immutable packages are under
+the selected run's `snowflake-loads/`. The audit table records uploads and procedure
+steps. Source JSON/Excel files and staged evidence are retained for retries.
+If interrupted after submission, a server query can still be running: reconcile
+the audit before retrying. Only one writer at a time is supported for this PoC.
+
+See `snowflake/README.md` for contracts, limitations and deployment order.
+
 ## Start here: Work PC setup
 
 **[Download the complete v3.2.1 Windows bundle (1.38 GB)](https://github.com/Vishukk1503/NCFTA-Review-Suite/releases/download/v3.2.1/NCFTA-Review-Suite-Windows-v3.zip)**
@@ -110,6 +146,8 @@ Date range + groups → read-only MISP events → objects/direct attributes → 
 
 - Dates are inclusive **MISP event dates**, not necessarily crime or modification dates. Interactive input accepts `YYYY-MM-DD` or `MM/DD/YYYY`.
 - Server permissions control group access; an empty group does not prove permission was denied.
+- New fetches request active and soft-deleted records (`deleted=[0,1]`). Source-deleted attributes and attributes inside a deleted object remain in saved JSON/records with a deleted outcome. A deletion proposal alone does not deactivate an attribute.
+- This covers only visible records in the selected event-date range/groups. Missing records are not treated as deleted; hard-deleted records may no longer be returned. The manifest records the requested deletion filter, not a guarantee of complete deletion coverage. Start a fresh run to use this filter; older interrupted fetches cannot mix query policies. Completed older runs can still be exported.
 - PyMISP is preferred; requests is explicitly reported if PyMISP is unavailable. Server/access failures do not cause a silent fallback.
 - All **118 field meanings** remain unchanged. **116 extraction fields** are queried; two observation timestamps stay metadata-only.
 - FP32, threshold **0.50**, TF32 disabled, original source formatter/tokenizer/architecture/checkpoint unchanged.
@@ -119,7 +157,9 @@ Date range + groups → read-only MISP events → objects/direct attributes → 
 
 ## CLI
 
-Menu: **1** fetch/extract; **2** saved JSON; **3** resume; **4** export; **5** setup; **6** output folder; **7** Intel comparison; **0** exit.
+Menu: **1** fetch/extract; **2** saved JSON; **3** resume; **4** export; **5** setup + NCFTA connection; **6** output folder; **7** Intel comparison; **0** exit.
+
+**Check setup + NCFTA** shows local readiness, then a connection panel inside the CLI. It makes one authenticated HTTPS `GET /users/view/me` using the suite's configured origin/key and Windows certificate trust (plus any configured CA bundle). The panel shows HTTP status, elapsed check time, TLS verification and whether the expected MISP user JSON was received. The request has a 20-second deadline, no retries, and does not follow redirects. Keys and returned account details are not displayed or saved. It fetches no events and performs no model inference; a pass does not validate event/group permissions, the full PyMISP fetch workflow or Snowflake. The command returns exit code 1 when the connection check fails. Use `Connection-Doctor.bat --metadata-only` for further diagnosis.
 
 ```bat
 Start-NCFTA.bat doctor

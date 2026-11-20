@@ -447,8 +447,9 @@ def worker(conn, kind, cfg):
         conn.close()
 
 
-def run_step(kind, label, cfg, seconds=25, target=worker):
-    print(f'\nCHECK {label} (maximum {seconds}s)', flush=True)
+def run_step(kind, label, cfg, seconds=25, target=worker, quiet=False):
+    if not quiet:
+        print(f'\nCHECK {label} (maximum {seconds}s)', flush=True)
     start = time.monotonic()
     ctx = mp.get_context('spawn')
     receive, send = ctx.Pipe(duplex=False)
@@ -467,7 +468,8 @@ def run_step(kind, label, cfg, seconds=25, target=worker):
                 break
             elapsed = time.monotonic() - start
             if elapsed >= next_update:
-                print(f'  Still checking: {int(elapsed)}s / {seconds}s', flush=True)
+                if not quiet:
+                    print(f'  Still checking: {int(elapsed)}s / {seconds}s', flush=True)
                 next_update += 5
             if not process.is_alive():
                 row = result('WORKER', 'Check process exited unexpectedly.')
@@ -486,6 +488,8 @@ def run_step(kind, label, cfg, seconds=25, target=worker):
     if kind == 'events':
         row['group'] = cfg['group']
         row['variant'] = cfg.get('event_variant', 'python')
+    if quiet:
+        return row
     print(f"{row['code']} [{row['seconds']}s] {row['message']}", flush=True)
     if row.get('content_type'):
         size = 'body not read' if row['response_bytes'] is None else str(row['response_bytes']) + ' bytes'

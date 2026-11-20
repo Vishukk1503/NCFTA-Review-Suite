@@ -15,6 +15,52 @@ HERE = Path(__file__).resolve().parent
 ENDPOINTS = ('/servers/getVersion', '/users/view/me', '/attributes/describeTypes.json')
 
 
+def quick_worker(conn, kind, cfg):
+    """One authenticated metadata GET, isolated so even DNS has a deadline."""
+    from connection_doctor import http_probe
+    try:
+        verify, trust = configure_tls(cfg.get('ca_bundle'))
+        row = http_probe(dict(cfg, ca_bundle=verify if verify is not True else None), 'auth')
+        row['tls_trust'] = trust
+    except TLSConfigurationError as exc:
+        row = dict(code='TLS_CONFIG', message=str(exc))
+    except ImportError:
+        row = dict(code='DEPENDENCY', message='Connection-check dependencies are missing. Run Install-Work-PC.bat.')
+    except Exception:
+        row = dict(code='CHECK_ERROR', message='Connection check could not complete. Run Connection-Doctor.bat --metadata-only for diagnosis.')
+    # Only the compact status leaves the worker. No account/body/header data.
+    allowed = ('code', 'message', 'http_status', 'tls_verified', 'tls_trust', 'content_type')
+    try:
+        conn.send({name: row[name] for name in allowed if name in row})
+    finally:
+        conn.close()
+
+
+def quick_check(cfg):
+    """Use the suite's key/settings; never fetch events or start the model."""
+    import suite
+    from connection_doctor import run_step
+    start = time.monotonic()
+    try:
+        # This small probe uses Requests even when event fetching uses PyMISP.
+        suite.transport(dict(cfg, transport='requests'))  # Validate the HTTPS origin.
+        key = suite.credentials(cfg)
+        if (not key.isascii() or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in key)
+                or key in ('YOUR_ACTUAL_KEY', 'YOUR_NCFTA_API_KEY', 'PASTE_YOUR_KEY_HERE')):
+            raise suite.SuiteError('API key contains a placeholder or invalid characters. Check .env; do not share the key.')
+        row = run_step('auth', 'NCFTA API: GET /users/view/me',
+                       dict(url=cfg['url'], key=key, ca_bundle=cfg.get('ca_bundle')),
+                       seconds=20, target=quick_worker, quiet=True)
+        del key
+    except suite.SuiteError as exc:
+        row = dict(code='CONFIG', message=str(exc))
+    except Exception:
+        row = dict(code='CHECK_ERROR', message='Connection check could not complete. Run Connection-Doctor.bat --metadata-only for diagnosis.')
+    row.setdefault('seconds', round(time.monotonic() - start, 2))
+    row['ok'] = row['code'] == 'PASS'
+    return row
+
+
 def network_message(exc, requests):
     for kind, message in (
         (requests.exceptions.SSLError, 'TLS certificate verification failed. Ask IT for the trusted CA bundle; do not disable verification.'),

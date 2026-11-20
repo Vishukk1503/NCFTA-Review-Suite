@@ -1,0 +1,242 @@
+{
+  "version": "2.0",
+  "status": "User-requested app field selection",
+  "business_field_count": 29,
+  "catalog_field_count": 118,
+  "fields": [
+    {
+      "number": 1,
+      "label": "Address",
+      "source": "address",
+      "mapping": "Equivalent field",
+      "rule": "Preserve the reported address. Do not infer ownership."
+    },
+    {
+      "number": 2,
+      "label": "Dollar Amount",
+      "source": "reported_amount",
+      "mapping": "Currency check",
+      "rule": "Use reported_currency when supplied. Do not assume USD."
+    },
+    {
+      "number": 3,
+      "label": "Bank Name",
+      "source": "bank_name",
+      "mapping": "Equivalent field",
+      "rule": "Preserve the source bank name."
+    },
+    {
+      "number": 4,
+      "label": "Bank Address",
+      "source": "bank_location",
+      "mapping": "Partial equivalent",
+      "rule": "A bank location may be a city, not a full postal address."
+    },
+    {
+      "number": 5,
+      "label": "Date of Crime",
+      "source": "crime_datetime",
+      "mapping": "Equivalent field",
+      "rule": "Keep separate from event date. Do not invent a timezone."
+    },
+    {
+      "number": 6,
+      "label": "Submitted By",
+      "source": "reporter",
+      "mapping": "Equivalent field",
+      "rule": "Source Reported By value. Not the threat actor or victim."
+    },
+    {
+      "number": 7,
+      "label": "SWIFT",
+      "source": "swift_code",
+      "mapping": "Equivalent field",
+      "rule": "Preserve the reported SWIFT value as text."
+    },
+    {
+      "number": 8,
+      "label": "Comments",
+      "source": "Raw attribute.value\n(saved source_value)",
+      "mapping": "Raw source value",
+      "rule": "Use the comment-type / Other attribute value, not its metadata comment."
+    },
+    {
+      "number": 9,
+      "label": "Bank Account #",
+      "source": "bank_account_number",
+      "mapping": "Equivalent field",
+      "rule": "Store as text to preserve leading zeros and masking."
+    },
+    {
+      "number": 10,
+      "label": "Bank Routing #",
+      "source": "routing_number",
+      "mapping": "Equivalent field",
+      "rule": "Store as text to preserve leading zeros."
+    },
+    {
+      "number": 11,
+      "label": "Threat Actor Name",
+      "source": "reported_actor_name",
+      "mapping": "Equivalent field",
+      "rule": "Preserve the reported role. Do not infer account ownership."
+    },
+    {
+      "number": 12,
+      "label": "Phone",
+      "source": "phone_number",
+      "mapping": "Equivalent field",
+      "rule": "Do not infer mobile status or country code."
+    },
+    {
+      "number": 13,
+      "label": "IP",
+      "source": "source_ip",
+      "mapping": "Equivalent field",
+      "rule": "Applies to the ip-src rows shown in the mapping sheet."
+    },
+    {
+      "number": 14,
+      "label": "Email",
+      "source": "email_address",
+      "mapping": "Equivalent field",
+      "rule": "Preserve the source email value and its attribute link."
+    },
+    {
+      "number": 15,
+      "label": "DoB",
+      "source": "date_of_birth",
+      "mapping": "Equivalent field",
+      "rule": "Do not associate a date with a person without source evidence."
+    },
+    {
+      "number": 16,
+      "label": "URL",
+      "source": "url\ndomain",
+      "mapping": "Sheet mapping",
+      "rule": "Keep domain and full URL distinguishable. Do not invent a protocol."
+    },
+    {
+      "number": 17,
+      "label": "Merchant Category",
+      "source": "Raw attribute.value\nmerchant_category_code (if MCC)",
+      "mapping": "Raw / conditional",
+      "rule": "Use raw category text. Use merchant_category_code only for an actual MCC."
+    },
+    {
+      "number": 18,
+      "label": "Company Name",
+      "source": "company_name",
+      "mapping": "Equivalent field",
+      "rule": "Preserve the reported company. Keep it separate from merchant and target."
+    },
+    {
+      "number": 19,
+      "label": "Alias Name",
+      "source": "alias_name",
+      "mapping": "Equivalent field",
+      "rule": "Preserve the reported alias. Link it to a person only with evidence."
+    },
+    {
+      "number": 20,
+      "label": "Age",
+      "source": "age",
+      "mapping": "Equivalent field",
+      "rule": "Preserve reported age and units. Do not derive it from date of birth."
+    },
+    {
+      "number": 21,
+      "label": "Place of Birth",
+      "source": "place_of_birth",
+      "mapping": "Equivalent field",
+      "rule": "Keep birthplace separate from current or previous address."
+    },
+    {
+      "number": 22,
+      "label": "Occupation",
+      "source": "occupation",
+      "mapping": "Equivalent field",
+      "rule": "Use the occupation or job title explicitly reported by the source."
+    },
+    {
+      "number": 23,
+      "label": "Employer Name",
+      "source": "employer_name",
+      "mapping": "Equivalent field",
+      "rule": "Use an organisation explicitly identified as an employer."
+    },
+    {
+      "number": 24,
+      "label": "Target Organisation",
+      "source": "target_organization",
+      "mapping": "Equivalent field",
+      "rule": "Preserve the target role. Keep it separate from company and merchant."
+    },
+    {
+      "number": 25,
+      "label": "Merchant Name",
+      "source": "merchant_name",
+      "mapping": "Equivalent field",
+      "rule": "Use explicit merchant evidence. Keep company and target separate."
+    },
+    {
+      "number": 26,
+      "label": "Previous Address",
+      "source": "previous_address",
+      "mapping": "Equivalent field",
+      "rule": "Use an address explicitly described as previous or former."
+    },
+    {
+      "number": 27,
+      "label": "Account Type",
+      "source": "account_type",
+      "mapping": "Equivalent field",
+      "rule": "Use the reported account type. Link it only to the supported account."
+    },
+    {
+      "number": 28,
+      "label": "Total Amount",
+      "source": "total_amount",
+      "mapping": "Equivalent field",
+      "rule": "Preserve the reported total and its scope. Do not calculate a new total."
+    },
+    {
+      "number": 29,
+      "label": "Reported Currency",
+      "source": "reported_currency",
+      "mapping": "Equivalent field",
+      "rule": "Use an explicit currency code. Do not infer from an ambiguous symbol."
+    }
+  ],
+  "duplicate_aliases_removed": [
+    {
+      "requested": "reported_actor_name",
+      "retained": "Threat Actor Name"
+    },
+    {
+      "requested": "bank_name",
+      "retained": "Bank Name"
+    },
+    {
+      "requested": "bank_account_number",
+      "retained": "Bank Account #"
+    },
+    {
+      "requested": "reported_amount",
+      "retained": "Dollar Amount"
+    },
+    {
+      "requested": "company_name (second occurrence)",
+      "retained": "Company Name"
+    }
+  ],
+  "open_items": [
+    "app row grain and business key",
+    "repeated-value representation and typed conversions",
+    "audit table definitions",
+    "connection/role/warehouse/grants"
+  ],
+  "source_workbook": "C:\\Users\\vishw\\Documents\\Codex\\2026-11-11\\pat\\reference-documents\\ncfta\\NCFTA App Mapping and 118 Field Catalog.xlsx",
+  "preserved_source_sha256": "260121287a507a68fc3a286491de3d92b27a1ed2be24cb54bb64546deb9e0b5e",
+  "workbook": "C:\\Users\\vishw\\Documents\\Codex\\2026-11-11\\pat\\outputs\\ncfta-app-mapping-v2-2026-11-19\\NCFTA App Mapping and 118 Field Catalog v2.xlsx"
+}

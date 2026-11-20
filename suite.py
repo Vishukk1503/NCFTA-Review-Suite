@@ -40,9 +40,10 @@ def menu_view():
         ('2','Extract saved JSON','Use a local event export'),
         ('3','Resume a run','Continue from saved progress'),
         ('4','Export to Excel','Export a completed run'),
-        ('5','Check setup','Check model, device and dependencies'),
+        ('5','Check setup + NCFTA','Check local readiness and API connection'),
         ('6','Open output folder','Browse saved runs and Excel workbooks'),
         ('7','Check Intel GPU','Compare CPU and Intel GPU on saved inputs'),
+        ('8','Load into Snowflake','Load a completed run into RAW, REFINED and APP'),
         ('0','Exit','Close the suite'),
     ]:options.add_row(*row)
     return Group(
@@ -195,6 +196,10 @@ def prepare(run,events):
                     row[dest]=value
                 p=source_input.packet(row)
                 r=dict(review_id='R'+key[:20],event_id=str(e.get('id','')),event_uuid=e.get('uuid',''),event_date=e.get('date',''),group=str(e.get('sharing_group_id','')),object_id=str((obj or {}).get('id','')),object_uuid=(obj or {}).get('uuid',''),object_name=(obj or {}).get('name',''),object_relation=a.get('object_relation',''),attribute_id=str(a.get('id','')),attribute_uuid=a.get('uuid',''),attribute_distribution=a.get('distribution'),attribute_sharing_group_id=a.get('sharing_group_id'),first_seen=a.get('first_seen'),last_seen=a.get('last_seen'),source_row=row,input=p['text'],value_offset=p['source_value_offset'],source_hash=fingerprint,issues=issues,deleted=a.get('deleted') in (True,1,'1','true'))
+                # A revoked parent object also makes its contained attributes
+                # inactive. Keep the original attribute/object flags in raw JSON.
+                if (obj or {}).get('deleted') in (True,1,'1','true'):
+                    r['deleted']=True
                 records.append(r)
     target=run/'attribute-records.jsonl'
     content=''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in records)
@@ -233,6 +238,7 @@ class HTTPClient:
     def search(self,**args):
         import requests
         body={'returnFormat':'json','sharinggroup':args['sharinggroup'],'from':args['date_from'],'to':args['date_to'],'page':args['page'],'limit':args['limit'],'metadata':False,'withAttachments':False}
+        if 'deleted' in args:body['deleted']=args['deleted']
         try:
             r=self.session.post(self.url,json=body,timeout=(20,180),allow_redirects=False,verify=self.verify)
             if r.status_code!=200:raise SuiteError(f'MISP HTTP {r.status_code}; response body withheld.')
@@ -250,7 +256,18 @@ def transport(cfg):
     return 'pymisp' if mode!='requests' and available else 'requests'
 
 def fetch(run,cfg,ui,client_factory=None):
-    m=read(run/'manifest.json');f=m['filters'];key=credentials(cfg) if client_factory is None else ''
+    m=read(run/'manifest.json');f=m['filters']
+    # [0,1] means active AND soft-deleted; 1 alone means deleted only.
+    # Never change query semantics part-way through a saved fetch.
+    deletion_filter=[0,1]
+    prior_filter=m.get('misp_deleted_filter')
+    saved_pages=any((run/'raw').glob('group-*-page-*.json'))
+    if ((prior_filter is not None and prior_filter!=deletion_filter) or
+            (prior_filter is None and (saved_pages or (run/'events.json').exists()))):
+        raise SuiteError('Fetch policy changed to include source-deleted records. Start a new run; existing saved data is unchanged.')
+    m.update(misp_deleted_filter=deletion_filter,
+             deletion_notice_scope='selected_event_dates_and_groups')
+    key=credentials(cfg) if client_factory is None else ''
     mode=transport(cfg);m.update(transport=mode,server=cfg['url'],attachments_requested=False);save(run/'manifest.json',m)
     if client_factory:context=client_factory()
     elif mode=='pymisp':
@@ -267,7 +284,7 @@ def fetch(run,cfg,ui,client_factory=None):
                 body=None
                 for attempt in range(3):
                     try:
-                        body=client.search(controller='events',return_format='json',sharinggroup=[group],date_from=f['from'],date_to=f['to'],page=page,limit=10,metadata=False,with_attachments=False,pythonify=False);break
+                        body=client.search(controller='events',return_format='json',sharinggroup=[group],date_from=f['from'],date_to=f['to'],page=page,limit=10,metadata=False,with_attachments=False,deleted=deletion_filter,pythonify=False);break
                     except Exception:
                         log(run,'fetch_retry',group=group,page=page,attempt=attempt+1)
                         if attempt==2:raise SuiteError(f'Fetch failed for group {group}, page {page}; saved pages retained. Check permissions/network.') from None
@@ -496,6 +513,29 @@ def import_json(run,path,ui):
     m=read(run/'manifest.json');m.update(fetch_complete=True,source_sha256=sha(run/'events.json'),source='local_json',event_dates=sorted({str(e.get('date','')) for e in events}),groups=sorted({str(e.get('sharing_group_id','')) for e in events}));save(run/'manifest.json',m)
     return prepare(run,events)
 
+def connection_panel(result):
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+    ok=result.get('ok',False)
+    table=Table.grid(padding=(0,2),expand=True)
+    table.add_column(style='dim',width=16);table.add_column(ratio=1)
+    table.add_row('Status',Text('CONNECTED' if ok else 'CHECK FAILED',style='bold green' if ok else 'bold red'))
+    table.add_row('Request','GET /users/view/me')
+    table.add_row('HTTP response',str(result.get('http_status','No HTTP response')))
+    table.add_row('Check time',f"{result['seconds']:.2f} seconds")
+    table.add_row('API key','Accepted' if ok else 'Not confirmed')
+    table.add_row('TLS','Verified' if result.get('tls_verified') else 'Not confirmed')
+    message='NCFTA API responded with the expected user JSON.' if ok else result['message']
+    items=[table,Text(message,style='green' if ok else 'yellow'),
+           Text('At most one HTTPS request · No event fetch · No model inference',style='dim'),
+           Text('Event/group access and Snowflake are not tested.',style='dim')]
+    if not ok:
+        items.append(Text('Details: Connection-Doctor.bat --metadata-only',style='dim'))
+    return Panel(Group(*items),title='NCFTA connection',border_style='green' if ok else 'red',padding=(1,2))
+
+
 def doctor(cfg):
     from rich.console import Console
     from rich.table import Table
@@ -514,14 +554,23 @@ def doctor(cfg):
         intel_backend.verify_ir();table.add_row('Intel FP32 encoder','Checksum verified; opt-in backend')
     except intel_backend.BackendError as exc:table.add_row('Intel backend',str(exc))
     table.add_row('Free space',f'{shutil.disk_usage(HERE).free/1024**3:.1f} GB')
-    table.add_row('Credential file','Present (not read)' if Path(cfg['env']).is_file() else 'Not found')
-    table.add_row('Fetch transport',transport(cfg)+' (auto prefers PyMISP)')
+    table.add_row('Credential file','Present' if (HERE/'.env').is_file() or Path(cfg['env']).is_file() else 'Not found (environment key may still be set)')
+    try:table.add_row('Fetch transport',transport(cfg)+' (auto prefers PyMISP)')
+    except SuiteError as exc:table.add_row('Fetch transport',str(exc))
     if cfg.get('excel_backend')=='openpyxl':
         table.add_row('Excel export','openpyxl available' if importlib.util.find_spec('openpyxl') else 'Missing: run Install-Work-PC.bat')
     else:
         table.add_row('Excel Node', 'Found' if Path(cfg.get('node','')).is_file() else 'Missing')
         table.add_row('Excel package','Found' if (Path(cfg.get('artifact_modules',''))/'@oai/artifact-tool/package.json').is_file() else 'Missing')
-    terminal_console().print(table)
+    console=terminal_console();console.print(table)
+    from check_connection import quick_check
+    try:
+        with console.status('Checking NCFTA API (20-second limit)…',spinner='dots'):
+            result=quick_check(cfg)
+    except KeyboardInterrupt:
+        console.print('Connection check cancelled.');return 130
+    console.print(connection_panel(result))
+    return 0 if result['ok'] else 1
 
 def open_output_folder(folder):
     folder=Path(folder).resolve()
@@ -563,11 +612,12 @@ def interactive(cfg):
         c.print('[dim]auto: NVIDIA GPU if available, otherwise CPU. Intel GPU is opt-in; use Check Intel GPU first.[/dim]')
         device=ask('[bold cyan]Processing device[/bold cyan]',choices=['auto','cpu','cuda','intel-gpu'],default='auto')
         return args if device=='auto' else [*args,'--device',device]
-    choice=ask('[bold cyan]  Choose workflow[/bold cyan]',choices=['1','2','3','4','5','6','7','0'],default='1')
+    choice=ask('[bold cyan]  Choose workflow[/bold cyan]',choices=['1','2','3','4','5','6','7','8','0'],default='1')
     if choice=='0':return None
     if choice=='5':return ['doctor']
     if choice=='6':return ['outputs']
     if choice=='7':return ['check-intel']
+    if choice=='8':return ['snowflake']
     if choice=='1':
         c.print(Panel('Enter an inclusive event date range, then select groups.\n[dim]Dates: YYYY-MM-DD or MM/DD/YYYY · Groups: 6, 7, 8[/dim]',title='[bold cyan]Fetch & extract[/bold cyan]',border_style='cyan'))
         def ask_date(label,minimum=None):
@@ -602,6 +652,10 @@ def main(argv=None):
     sub=p.add_subparsers(dest='action',required=True)
     sub.add_parser('doctor')
     sub.add_parser('outputs')
+    snow=sub.add_parser('snowflake',help='Load a completed extraction into Snowflake')
+    snow.add_argument('--run',type=Path)
+    snow.add_argument('--connection',help='Existing Snowflake CLI profile (default cdp_prd)')
+    snow.add_argument('--package-only',action='store_true',help='Validate and prepare JSON without connecting or uploading')
     check=sub.add_parser('check-intel',help='Compare the same saved inputs on CPU and Intel GPU; no default changes')
     check.add_argument('--run',type=Path);check.add_argument('--samples',type=int,default=20);check.add_argument('--threads',type=int,default=4)
     check.add_argument('--resume-check',type=Path,help='Resume a failed check without repeating completed CPU predictions')
@@ -613,7 +667,10 @@ def main(argv=None):
         if name not in ('fetch','export'):
             s.add_argument('--device',choices=['auto','cpu','cuda','intel-gpu'],default='auto');s.add_argument('--threads',type=int,default=4);s.add_argument('--max-new',type=int,help='Stop after this many new attributes; resume later')
     a=p.parse_args(argv)
-    if a.action=='doctor':doctor(cfg);return 0
+    if a.action=='doctor':return doctor(cfg)
+    if a.action=='snowflake':
+        from snowflake_loader import launch
+        return launch(cfg,a.run,a.connection,a.package_only)
     if a.action=='outputs':
         folder=Path(cfg['runs']);folder.mkdir(parents=True,exist_ok=True)
         open_output_folder(folder);return 0
@@ -657,6 +714,9 @@ def main(argv=None):
         if interactive_mode:
             from rich.prompt import Confirm
             if Confirm.ask('Open folder?',default=True,console=terminal_console()):open_output_folder(run)
+            if read(run/'manifest.json').get('phase')=='complete' and Confirm.ask('Load this completed run into Snowflake?',default=False,console=terminal_console()):
+                from snowflake_loader import launch
+                return launch(cfg,run)
         return 0
     except KeyboardInterrupt:
         if run:

@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 settings.json
+snowflake-loader.json
 .venv/
 runs/
 checks/

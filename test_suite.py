@@ -21,7 +21,8 @@ class SuiteTests(unittest.TestCase):
   from types import SimpleNamespace as NS
   from unittest.mock import Mock
   run=self.run_dir()
-  events=[event(1,[dict(uuid='a',type='other',value='Example'),dict(uuid='b',type='other',value='Example'),dict(uuid='c',type='other',value='Example',comment='Different context')])]
+  events=[event(1,[dict(uuid='a',type='other',value='Example'),dict(uuid='b',type='other',value='Example'),dict(uuid='c',type='other',value='Example',comment='Different context'),dict(uuid='d',type='other',value='Example',deleted=True)],
+                [dict(uuid='revoked-object',deleted=True,Attribute=[dict(uuid='e',type='other',value='Example',deleted=False)])])]
   suite.save(run/'events.json',events);rows=suite.prepare(run,events)
   m=suite.read(run/'manifest.json');m.update(fetch_complete=True,source_sha256=suite.sha(run/'events.json'));suite.save(run/'manifest.json',m)
   modeldir=Path(self.tmp.name)/'model';modeldir.mkdir();(modeldir/'model.safetensors').write_bytes(b'test')
@@ -37,8 +38,10 @@ class SuiteTests(unittest.TestCase):
    suite.infer(run,cfg,UI(),'cpu',4,None)
   saved=list(suite.lines(run/'predictions.jsonl'))
   self.assertEqual(model.extract_entities.call_count,2)
-  self.assertEqual(len({r['review_id'] for r in saved}),3)
+  self.assertEqual(len({r['review_id'] for r in saved}),5)
   self.assertEqual(saved[0]['spans'],saved[1]['spans'])
+  self.assertEqual([r['status'] for r in saved[-2:]],['deleted','deleted'])
+  self.assertTrue(all(not r['spans'] for r in saved[-2:]))
   self.assertEqual(suite.read(run/'manifest.json')['inference_sessions'][-1]['cache_hits'],1)
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
@@ -95,6 +98,8 @@ class SuiteTests(unittest.TestCase):
  def test_key_not_saved(self):
   keyfile=Path(self.tmp.name)/'.env';keyfile.write_text('NCFTA_API_KEY="test-only-key"\n')
   self.cfg['env']=str(keyfile)
-  with patch.dict('os.environ',{},clear=True):self.assertEqual(suite.credentials(self.cfg),'test-only-key')
+  # Do not consult a developer's real .env when testing credential loading.
+  with patch.dict('os.environ',{},clear=True),patch.object(suite,'HERE',Path(self.tmp.name)):
+   self.assertEqual(suite.credentials(self.cfg),'test-only-key')
 
 if __name__=='__main__':unittest.main()
